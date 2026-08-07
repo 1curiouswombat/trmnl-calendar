@@ -148,7 +148,9 @@ class CalendarCache:
         try:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             body_path.write_bytes(rendered.body)
+            body_path.chmod(0o600)
             meta_path.write_text(json.dumps(metadata, sort_keys=True), encoding="utf-8")
+            meta_path.chmod(0o600)
         except Exception:
             LOGGER.exception("Failed to persist render cache for %s", self.plugin.name)
 

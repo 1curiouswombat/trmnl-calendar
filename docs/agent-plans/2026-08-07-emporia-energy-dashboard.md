@@ -443,3 +443,10 @@ and no issue was created.
   the shared server cache, added all `/energy/*` Redirect/image routes, preserved
   legacy weekly/month routing, documented the endpoint/configuration, and added
   server-level HTTP contract tests. Status: `DONE`; all 55 tests pass.
+- 2026-08-07: Chunk 4 completed: prewarmed live Emporia readings/rendering,
+  configured the systemd service to source the existing shell-format private
+  secrets file, set explicit timezone/token/state paths, restarted the service,
+  and validated local and public Redirect/image endpoints. Public JSON responds
+  in about 178 ms and the image is `1872x1404` 4-bit grayscale. Secrets, tokens,
+  readings, and persisted render files are mode `600`; the service is active with
+  no warning-level journal entries. Status: `DONE`.

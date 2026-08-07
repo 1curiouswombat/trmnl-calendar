@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import time
 import unittest
 from datetime import datetime
@@ -222,9 +223,13 @@ class ServerRenderTests(unittest.TestCase):
                 )
                 with patch.object(server.time, "time", return_value=2000):
                     loaded = loaded_cache.get()
+                body_mode = stat.S_IMODE((Path(temp_dir) / "persisted.png").stat().st_mode)
+                metadata_mode = stat.S_IMODE((Path(temp_dir) / "persisted.json").stat().st_mode)
 
         self.assertEqual(loaded.fingerprint, rendered.fingerprint)
         self.assertEqual(loaded.body, rendered.body)
+        self.assertEqual(body_mode, 0o600)
+        self.assertEqual(metadata_mode, 0o600)
 
     def test_seconds_until_next_prewarm_waits_until_after_next_bucket(self) -> None:
         self.assertEqual(server.seconds_until_next_prewarm(1000.0, 900, 5.0), 805.0)
