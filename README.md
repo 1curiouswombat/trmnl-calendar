@@ -52,19 +52,24 @@ python3 -m pip install -e .
 serve-trmnl-calendar
 ```
 
-The weekly plugin renders a rolling 5-day window starting with today as the left-most column. The month plugin renders a rolling 5-week window starting with the current week. The server exposes:
+The weekly plugin renders a rolling 5-day window starting with today as the left-most column. The month plugin renders a rolling 5-week window starting with the current week. The energy plugin compares today and yesterday across the Emporia Vue mains and circuits, with seven-day whole-home and TV-use summaries. The server exposes:
 
 ```text
 GET /weekly/trmnl.json  Weekly Redirect plugin JSON
 GET /weekly/image.png   Weekly PNG image for Redirect or Alias
 GET /month/trmnl.json   Month Redirect plugin JSON
 GET /month/image.png    Month PNG image for Redirect or Alias
+GET /energy/trmnl.json  Energy Redirect plugin JSON
+GET /energy/image.png   Energy PNG image for Redirect or Alias
+GET /energy/calendar.png Energy PNG compatibility alias
 GET /trmnl.json         Legacy weekly Redirect plugin JSON
 GET /image.png          Legacy weekly PNG image
 GET /healthz            Health check
 ```
 
-The server keeps a rendered-image cache in memory and persists the last-good PNG plus metadata under `outputs/server-cache` by default. When a render bucket expires, `/trmnl.json` and `/image.png` return the previous image immediately while a background refresh generates the next image and fingerprint. On startup, the server loads the persisted render before accepting requests, then prewarms stale weekly and monthly renders in the background. A background prewarm loop also refreshes each render bucket shortly after it starts, so TRMNL usually hits an already-rendered image instead of triggering work itself. Set `TRMNL_RENDER_CACHE_DIR` to move the cache, `TRMNL_PERSIST_RENDER_CACHE=0` to disable the disk cache, or `TRMNL_RENDER_PREWARM_DELAY_SECONDS` to tune the post-bucket prewarm delay.
+The server keeps a rendered-image cache in memory and persists the last-good PNG plus metadata under `outputs/server-cache` by default. When a render bucket expires, `/trmnl.json` and `/image.png` return the previous image immediately while a background refresh generates the next image and fingerprint. On startup, the server loads the persisted render before accepting requests, then prewarms stale weekly, monthly, and energy renders in the background. A background prewarm loop also refreshes each render bucket shortly after it starts, so TRMNL usually hits an already-rendered image instead of triggering work itself. Set `TRMNL_RENDER_CACHE_DIR` to move the cache, `TRMNL_PERSIST_RENDER_CACHE=0` to disable the disk cache, or `TRMNL_RENDER_PREWARM_DELAY_SECONDS` to tune the post-bucket prewarm delay.
+
+The energy plugin loads live Emporia data when `EMPORIA_USERNAME` and `EMPORIA_PASSWORD` are available to the server process. It persists normalized readings separately from rendered images and falls back to the last saved readings when Emporia is unavailable. Without configured credentials, local rendering uses deterministic sample data.
 
 By default, the server renders the mock events. Set `TRMNL_GOG_COMMAND` to fetch live Google Calendar JSON with `gog`. The command is a template; `{start}` is the view start date and `{end}` is the exclusive view end date.
 
@@ -143,6 +148,13 @@ TRMNL_WEATHER_TTL_SECONDS=21600
 TRMNL_WEEKLY_HISTORICAL_WEATHER=1
 TRMNL_EXTERNAL_API_LOGGING=1
 TRMNL_LOG_LEVEL=INFO
+EMPORIA_USERNAME=your-emporia-username
+EMPORIA_PASSWORD=your-emporia-password
+EMPORIA_TIMEZONE=America/Denver
+EMPORIA_TOKEN_FILE=/private/state/path/emporia-tokens.json
+TRMNL_ENERGY_STATE_PATH=outputs/server-cache/energy-state.json
+EMPORIA_TV_CHANNEL_NAME=TV
+EMPORIA_TV_ON_THRESHOLD_WATTS=40
 ```
 
 `TRMNL_IMAGE_MODE=4bit` writes a packed PNG with bit depth `4` and grayscale color type `0`.
@@ -153,6 +165,7 @@ For TRMNL Redirect, configure the plugin Web Address to:
 ```text
 https://your-public-host.example.com/weekly/trmnl.json
 https://your-public-host.example.com/month/trmnl.json
+https://your-public-host.example.com/energy/trmnl.json
 ```
 
 For Alias testing, configure the Image URL to:

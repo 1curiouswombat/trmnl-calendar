@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 import unittest
 from datetime import datetime
+from http.client import HTTPConnection
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Event
-from unittest.mock import patch
+from threading import Event, Thread
+from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 from PIL import Image
@@ -55,6 +57,112 @@ class ServerRenderTests(unittest.TestCase):
         self.assertEqual(load_month_events.call_args.args[0].isoformat(), "2026-06-28")
         self.assertEqual(load_month_events.call_args.kwargs["range_end"].isoformat(), "2026-07-26")
         self.assertEqual(captured["view_start"].isoformat(), "2026-06-28")
+
+    def test_energy_render_loads_real_dashboard_data_and_forwards_force(self) -> None:
+        generated_at = datetime(2026, 8, 7, 9, 30, tzinfo=ZoneInfo("America/Denver"))
+        dashboard = Mock(source="emporia")
+        rendered_image = object()
+
+        with patch.object(server, "load_energy_dashboard", return_value=dashboard) as load:
+            with patch.object(server, "render_energy_image", return_value=rendered_image) as render:
+                image, source = server.render_energy(generated_at, force=True)
+
+        self.assertIs(image, rendered_image)
+        self.assertEqual(source, "emporia")
+        load.assert_called_once_with(force=True, now=generated_at)
+        render.assert_called_once_with(dashboard)
+
+    def test_plugin_specs_registers_energy_dashboard(self) -> None:
+        plugins = server.plugin_specs()
+
+        self.assertEqual(set(plugins), {"weekly", "month", "energy"})
+        self.assertEqual(plugins["energy"].filename_prefix, "energy-dashboard")
+        self.assertIs(plugins["energy"].render, server.render_energy)
+
+    def test_energy_routes_and_legacy_aliases_resolve(self) -> None:
+        self.assertEqual(
+            server.resolve_route("/energy/trmnl.json"),
+            server.Route("json", "energy", "/energy/image.png"),
+        )
+        for path in ("/energy/image.png", "/energy/calendar.png"):
+            self.assertEqual(
+                server.resolve_route(path),
+                server.Route("image", "energy", "/energy/image.png"),
+            )
+
+        self.assertEqual(
+            server.resolve_route("/trmnl.json"),
+            server.Route("json", "weekly", "/image.png"),
+        )
+        self.assertEqual(
+            server.resolve_route("/image.png"),
+            server.Route("image", "weekly", "/image.png"),
+        )
+        self.assertEqual(
+            server.resolve_route("/month/trmnl.json"),
+            server.Route("json", "month", "/month/image.png"),
+        )
+
+    def test_energy_redirect_and_image_use_shared_cache_contract(self) -> None:
+        body = b"\x89PNG\r\nenergy"
+        rendered = server.RenderedCalendar(
+            bucket=1,
+            body=body,
+            fingerprint="1234abcd",
+            source="emporia",
+            generated_at=datetime(2026, 8, 7, tzinfo=ZoneInfo("America/Denver")),
+        )
+
+        class FakeCache:
+            plugin = server.CalendarPlugin("energy", "energy-dashboard", server.render_energy)
+            refresh_seconds = 900
+
+            def __init__(self) -> None:
+                self.force_calls: list[bool] = []
+
+            def get(self, *, force: bool = False) -> server.RenderedCalendar:
+                self.force_calls.append(force)
+                return rendered
+
+        cache = FakeCache()
+        http_server = server.ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            server.make_handler({"energy": cache}),
+        )
+        thread = Thread(target=http_server.serve_forever, daemon=True)
+        thread.start()
+        connection = HTTPConnection("127.0.0.1", http_server.server_port, timeout=2)
+        try:
+            connection.request("GET", "/energy/trmnl.json")
+            response = connection.getresponse()
+            redirect_body = response.read()
+            payload = json.loads(redirect_body)
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("Content-Type"), "application/json")
+            self.assertEqual(int(response.getheader("Content-Length")), len(redirect_body))
+            self.assertEqual(response.getheader("Cache-Control"), "no-store")
+            self.assertEqual(payload["filename"], "energy-dashboard-1234abcd")
+            self.assertEqual(payload["refresh_rate"], 900)
+            self.assertEqual(
+                payload["url"],
+                f"http://127.0.0.1:{http_server.server_port}/energy/image.png?v=1234abcd",
+            )
+
+            connection.request("GET", "/energy/calendar.png?refresh=1")
+            response = connection.getresponse()
+            image_body = response.read()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("Content-Type"), "image/png")
+            self.assertEqual(int(response.getheader("Content-Length")), len(body))
+            self.assertEqual(response.getheader("Cache-Control"), "no-store")
+            self.assertEqual(image_body, body)
+        finally:
+            connection.close()
+            http_server.shutdown()
+            http_server.server_close()
+            thread.join(timeout=2)
+
+        self.assertEqual(cache.force_calls, [False, True])
 
     def test_calendar_cache_returns_stale_while_refreshing(self) -> None:
         render_started = Event()

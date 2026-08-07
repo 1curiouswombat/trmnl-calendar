@@ -18,6 +18,8 @@ from urllib.parse import parse_qs, urlparse
 from PIL import Image
 
 from trmnl_weekly_calendar.calendar_data import load_events, load_month_events
+from trmnl_weekly_calendar.energy_data import load_energy_dashboard
+from trmnl_weekly_calendar.energy_render import render_energy_image
 from trmnl_weekly_calendar.month_render import MONTH_WEEK_ROWS, render_month_image
 from trmnl_weekly_calendar.png_encode import encode_png_grayscale_4bit
 from trmnl_weekly_calendar.render import OUT, configured_now, days_for_week, render_image, start_of_week
@@ -206,10 +208,16 @@ def render_month(generated_at: datetime, force: bool = False) -> tuple[Image.Ima
     return image, f"{source}+{weather_source}"
 
 
+def render_energy(generated_at: datetime, force: bool = False) -> tuple[Image.Image, str]:
+    data = load_energy_dashboard(force=force, now=generated_at)
+    return render_energy_image(data), data.source
+
+
 def plugin_specs() -> dict[str, CalendarPlugin]:
     return {
         "weekly": CalendarPlugin("weekly", "weekly-calendar", render_weekly),
         "month": CalendarPlugin("month", "month-calendar", render_month),
+        "energy": CalendarPlugin("energy", "energy-dashboard", render_energy),
     }
 
 
@@ -320,7 +328,7 @@ def resolve_route(path: str) -> Route | None:
         return Route("image", "weekly", path)
 
     parts = [part for part in path.split("/") if part]
-    if len(parts) != 2 or parts[0] not in {"weekly", "month"}:
+    if len(parts) != 2 or parts[0] not in {"weekly", "month", "energy"}:
         return None
 
     plugin_name, leaf = parts
@@ -414,6 +422,7 @@ def main() -> None:
     print(f"Serving TRMNL calendar plugins on http://{host}:{port}")
     print(f"Weekly Redirect JSON: http://{host}:{port}/weekly/trmnl.json")
     print(f"Month Redirect JSON:  http://{host}:{port}/month/trmnl.json")
+    print(f"Energy Redirect JSON: http://{host}:{port}/energy/trmnl.json")
     print(f"Legacy weekly JSON:   http://{host}:{port}/trmnl.json")
     server.serve_forever()
 

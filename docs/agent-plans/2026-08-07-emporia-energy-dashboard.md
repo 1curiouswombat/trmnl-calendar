@@ -439,3 +439,7 @@ and no issue was created.
   Today/Yesterday legend, removed all subplot/card frames and grid guides, and
   adopted a consistent despined treatment with inset left/bottom axes. The
   regenerated 4-bit sample passes all 51 repository tests.
+- 2026-08-07: Chunk 3 completed: registered the real-data energy renderer with
+  the shared server cache, added all `/energy/*` Redirect/image routes, preserved
+  legacy weekly/month routing, documented the endpoint/configuration, and added
+  server-level HTTP contract tests. Status: `DONE`; all 55 tests pass.
