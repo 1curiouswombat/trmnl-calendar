@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw
 
 from trmnl_weekly_calendar.energy_data import AveragePowerPoint, mock_energy_dashboard
 from trmnl_weekly_calendar.energy_render import (
+    antialiased_series_layer,
     axis_display_unit,
     axis_tick_label,
     CONTENT_BOTTOM,
@@ -32,6 +33,7 @@ from trmnl_weekly_calendar.energy_render import (
     plot_point,
     power_line_segments,
     render_energy_image,
+    SERIES_LAYER_PADDING,
     stable_plot_series,
     summary_chart_boxes,
     write_energy_output,
@@ -190,6 +192,28 @@ class EnergyRenderTests(unittest.TestCase):
         segments = power_line_segments(points)
 
         self.assertEqual([2, 1], [len(segment) for segment in segments])
+
+    def test_trace_layer_has_antialiased_edges_and_preserves_core_colors(self) -> None:
+        start = datetime(2026, 8, 7, tzinfo=timezone.utc)
+        diagonal = (
+            AveragePowerPoint(0, 0.1, start),
+            AveragePowerPoint(24, 0.9, start + timedelta(minutes=15)),
+        )
+
+        today = antialiased_series_layer((), diagonal, (101, 51), 1.0)
+        yesterday = antialiased_series_layer(diagonal, (), (101, 51), 1.0)
+        today_values = set(today.get_flattened_data())
+        yesterday_values = set(yesterday.get_flattened_data())
+
+        self.assertEqual(
+            (101 + SERIES_LAYER_PADDING * 2, 51 + SERIES_LAYER_PADDING * 2),
+            today.size,
+        )
+        self.assertIn(0, today_values)
+        self.assertIn(255, today_values)
+        self.assertTrue(any(0 < value < 255 for value in today_values))
+        self.assertIn(170, yesterday_values)
+        self.assertTrue(any(170 < value < 255 for value in yesterday_values))
 
     def test_daily_charts_have_seven_values_and_today_is_partial(self) -> None:
         self.assertEqual(len(self.data.daily_mains), DISPLAY_DAYS)

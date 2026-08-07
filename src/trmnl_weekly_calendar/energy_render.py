@@ -38,6 +38,8 @@ SUMMARY_GAP = 24
 GRID_DESCRIPTION = "15-MIN AVG POWER • W/kW AXES • PANEL TOTALS: TODAY / YESTERDAY kWh"
 SPINE_OFFSET = 6
 Y_TICK_DIVISIONS = 4
+LINE_SUPERSAMPLE = 3
+SERIES_LAYER_PADDING = 5
 
 WHITE = 255
 BLACK = 0
@@ -75,7 +77,7 @@ def render_energy_image(
     draw_header(draw, dashboard)
     panels = stable_plot_series(dashboard.series)
     for index, panel in enumerate(panels):
-        draw_energy_panel(draw, panel, panel_box(index), emphasize=index == 0)
+        draw_energy_panel(image, draw, panel, panel_box(index), emphasize=index == 0)
 
     energy_box, screen_time_box = summary_chart_boxes()
     draw_daily_bars(
@@ -161,6 +163,7 @@ def draw_header(draw: ImageDraw.ImageDraw, data: EnergyDashboardData) -> None:
     )
 
 def draw_energy_panel(
+    image: Image.Image,
     draw: ImageDraw.ImageDraw,
     series: EnergyPlotSeries,
     box: tuple[int, int, int, int],
@@ -201,8 +204,16 @@ def draw_energy_panel(
             fill=TEXT_GRAY,
         )
 
-    draw_series_line(draw, series.yesterday, plot, maximum, YESTERDAY_GRAY, 3, False)
-    draw_series_line(draw, series.today, plot, maximum, BLACK, 5, True)
+    layer = antialiased_series_layer(
+        series.yesterday,
+        series.today,
+        (px1 - px0 + 1, py1 - py0 + 1),
+        maximum,
+    )
+    image.paste(
+        layer,
+        (px0 - SERIES_LAYER_PADDING, py0 - SERIES_LAYER_PADDING),
+    )
 
 
 def panel_spines(
@@ -310,6 +321,7 @@ def draw_series_line(
     fill: int,
     width: int,
     end_marker: bool,
+    marker_radius: int = 5,
 ) -> None:
     segments = power_line_segments(points)
     for segment in segments:
@@ -318,7 +330,68 @@ def draw_series_line(
             draw.line(coordinates, fill=fill, width=width, joint="curve")
     if end_marker and points:
         x, y = plot_point(points[-1], plot, maximum)
-        draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=BLACK)
+        draw.ellipse(
+            (
+                x - marker_radius,
+                y - marker_radius,
+                x + marker_radius,
+                y + marker_radius,
+            ),
+            fill=BLACK,
+        )
+
+
+def antialiased_series_layer(
+    yesterday: Sequence[AveragePowerPoint],
+    today: Sequence[AveragePowerPoint],
+    size: tuple[int, int],
+    maximum: float,
+    *,
+    supersample: int = LINE_SUPERSAMPLE,
+    padding: int = SERIES_LAYER_PADDING,
+) -> Image.Image:
+    """Render plot marks above native resolution, then downsample their edges."""
+
+    width, height = size
+    if width <= 0 or height <= 0:
+        raise ValueError("plot layer dimensions must be positive")
+    if supersample < 1:
+        raise ValueError("supersample must be at least one")
+    if padding < 0:
+        raise ValueError("padding cannot be negative")
+    output_size = (width + padding * 2, height + padding * 2)
+    high_width = (output_size[0] - 1) * supersample + 1
+    high_height = (output_size[1] - 1) * supersample + 1
+    layer = Image.new("L", (high_width, high_height), WHITE)
+    layer_draw = ImageDraw.Draw(layer)
+    high_padding = padding * supersample
+    high_plot = (
+        high_padding,
+        high_padding,
+        high_padding + (width - 1) * supersample,
+        high_padding + (height - 1) * supersample,
+    )
+    draw_series_line(
+        layer_draw,
+        yesterday,
+        high_plot,
+        maximum,
+        YESTERDAY_GRAY,
+        3 * supersample,
+        False,
+        marker_radius=5 * supersample,
+    )
+    draw_series_line(
+        layer_draw,
+        today,
+        high_plot,
+        maximum,
+        BLACK,
+        5 * supersample,
+        True,
+        marker_radius=5 * supersample,
+    )
+    return layer.resize(output_size, Image.Resampling.LANCZOS)
 
 
 def power_line_segments(

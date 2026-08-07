@@ -111,3 +111,12 @@ Not configured.
 ## Progress Log
 
 - 2026-08-07: Plan created for targeted plot-trace antialiasing.
+- 2026-08-07: Chunk 1 DONE. Added isolated 3x supersampling and Lanczos
+  downsampling for both traces and the Today endpoint marker. All 14 focused
+  renderer tests and the full 68-test suite pass with compileall, diff, and exact
+  4-bit PNG checks.
+- 2026-08-07: Final review found baseline endpoint markers were clipped by the
+  original exact-size patch. Added five pixels of protected padding inside the
+  six-pixel detached-spine gap and reverified full markers, crisp spines, and live
+  output. No remaining correctness, regression, or unrelated-change findings.
+  Published public fingerprint `14fe40ab63819b23`.
