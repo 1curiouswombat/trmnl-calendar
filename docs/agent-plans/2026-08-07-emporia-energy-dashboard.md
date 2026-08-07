@@ -419,3 +419,8 @@ and no issue was created.
   requested 4x4 today-versus-yesterday cumulative comparison plus right-side
   seven-day bars.
 - 2026-08-07: Plan written; implementation not started.
+- 2026-08-07: Chunk 1 completed with normalized dashboard contracts, the
+  read-only PyEmVue adapter, persistent sample caching, Balance derivation, TV
+  runtime calculation, deterministic mock data, and focused tests. Status:
+  `DONE_WITH_CONCERNS` because the adapter is signature-checked and unit-tested
+  but intentionally has not yet been exercised against the live account.
