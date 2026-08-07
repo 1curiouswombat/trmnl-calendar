@@ -14,6 +14,7 @@ from trmnl_weekly_calendar.energy_render import (
     PANEL_COUNT,
     W,
     panel_box,
+    panel_plot_box,
     panel_y_max,
     plot_point,
     render_energy_image,
@@ -42,6 +43,30 @@ class EnergyRenderTests(unittest.TestCase):
         self.assertEqual(series[0].key, "total")
         self.assertEqual(series[-1].key, "balance")
         self.assertEqual(len({panel_box(index) for index in range(PANEL_COUNT)}), PANEL_COUNT)
+
+    def test_small_multiples_are_despined_without_legend_or_grid_guides(self) -> None:
+        image = render_energy_image(self.data)
+
+        self.assertEqual(image.crop((1410, 103, 1780, 140)).getextrema(), (255, 255))
+        for index in range(PANEL_COUNT):
+            box = panel_box(index)
+            corners = (
+                (box[0], box[1]),
+                (box[2], box[1]),
+                (box[0], box[3]),
+                (box[2], box[3]),
+            )
+            self.assertTrue(all(image.getpixel(corner) == 255 for corner in corners))
+
+        px0, py0, px1, py1 = panel_plot_box(panel_box(0))
+        self.assertEqual(image.getpixel((px0, py0 + 8)), 105)
+        self.assertEqual(image.getpixel(((px0 + px1) // 2, py1)), 105)
+        for hour in (6, 12, 18, 24):
+            x = round(px0 + hour / 24 * (px1 - px0))
+            self.assertEqual(image.getpixel((x, py0 + 8)), 255)
+
+        self.assertEqual(image.getpixel((1410, 164)), 255)
+        self.assertEqual(image.getpixel((1428, 244)), 105)
 
     def test_today_line_stops_at_latest_sample(self) -> None:
         total = stable_plot_series(self.data.series)[0]

@@ -39,7 +39,6 @@ WHITE = 255
 BLACK = 0
 TEXT_GRAY = 68
 FRAME_GRAY = 105
-GUIDE_GRAY = 221
 YESTERDAY_GRAY = 170
 COMPLETED_BAR_GRAY = 102
 PARTIAL_BAR_GRAY = 221
@@ -131,6 +130,11 @@ def panel_box(index: int) -> tuple[int, int, int, int]:
     return x0, y0, x1, y1
 
 
+def panel_plot_box(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    x0, y0, x1, y1 = box
+    return x0 + 35, y0 + 48, x1 - 12, y1 - 26
+
+
 def draw_header(draw: ImageDraw.ImageDraw, data: EnergyDashboardData) -> None:
     draw.text((CANVAS_MARGIN, 27), "HOME ENERGY", font=FONTS["title"], fill=BLACK)
     draw.text(
@@ -139,12 +143,6 @@ def draw_header(draw: ImageDraw.ImageDraw, data: EnergyDashboardData) -> None:
         font=FONTS["subtitle"],
         fill=TEXT_GRAY,
     )
-    legend_y = 119
-    draw.line((SUMMARY_LEFT, legend_y, SUMMARY_LEFT + 37, legend_y), fill=BLACK, width=5)
-    draw.text((SUMMARY_LEFT + 47, legend_y - 13), "Today", font=FONTS["note"], fill=BLACK)
-    yesterday_x = SUMMARY_LEFT + 137
-    draw.line((yesterday_x, legend_y, yesterday_x + 37, legend_y), fill=YESTERDAY_GRAY, width=4)
-    draw.text((yesterday_x + 47, legend_y - 13), "Yesterday", font=FONTS["note"], fill=TEXT_GRAY)
 
 
 def draw_energy_panel(
@@ -155,23 +153,24 @@ def draw_energy_panel(
     emphasize: bool,
 ) -> None:
     x0, y0, x1, y1 = box
-    draw.rectangle(box, outline=BLACK if emphasize else FRAME_GRAY, width=3 if emphasize else 1)
     label = ellipsize(draw, series.label, FONTS["panel"], x1 - x0 - 118)
     draw.text((x0 + 10, y0 + 7), label, font=FONTS["panel"], fill=BLACK)
     totals = f"{series.today_kwh:.2f} / {series.yesterday_kwh:.2f}"
     totals_width, _ = text_wh(draw, totals, FONTS["panel_value"])
     draw.text((x1 - totals_width - 10, y0 + 9), totals, font=FONTS["panel_value"], fill=TEXT_GRAY)
 
-    plot = (x0 + 35, y0 + 48, x1 - 12, y1 - 26)
+    plot = panel_plot_box(box)
     px0, py0, px1, py1 = plot
     maximum = panel_y_max(series)
+    axis_width = 2 if emphasize else 1
+    draw.line((px0, py0, px0, py1), fill=FRAME_GRAY, width=axis_width)
+    draw.line((px0, py1, px1, py1), fill=FRAME_GRAY, width=axis_width)
     for hour in (0, 6, 12, 18, 24):
         x = round(px0 + hour / 24 * (px1 - px0))
-        draw.line((x, py0, x, py1), fill=GUIDE_GRAY, width=1)
+        draw.line((x, py1, x, py1 + 4), fill=FRAME_GRAY, width=1)
         label_text = str(hour)
         label_width, _ = text_wh(draw, label_text, FONTS["axis"])
         draw.text((x - label_width / 2, py1 + 3), label_text, font=FONTS["axis"], fill=TEXT_GRAY)
-    draw.line((px0, py1, px1, py1), fill=FRAME_GRAY, width=1)
     max_label = compact_number(maximum)
     max_width, _ = text_wh(draw, max_label, FONTS["axis"])
     draw.text((px0 - max_width - 5, py0 - 8), max_label, font=FONTS["axis"], fill=TEXT_GRAY)
@@ -234,12 +233,12 @@ def draw_daily_bars(
     today,
 ) -> None:
     x0, y0, x1, y1 = box
-    draw.rounded_rectangle(box, radius=5, outline=FRAME_GRAY, width=2)
     draw.text((x0 + 15, y0 + 13), title, font=FONTS["chart_title"], fill=BLACK)
     visible = tuple(values[-DISPLAY_DAYS:])
     plot = (x0 + 18, y0 + 72, x1 - 14, y1 - 48)
     px0, py0, px1, py1 = plot
     maximum = rounded_axis_max(max((item.value for item in visible), default=0.0))
+    draw.line((px0, py0, px0, py1), fill=FRAME_GRAY, width=2)
     draw.line((px0, py1, px1, py1), fill=FRAME_GRAY, width=2)
     if not visible:
         draw.text((px0, py0 + 20), "No data", font=FONTS["note"], fill=TEXT_GRAY)

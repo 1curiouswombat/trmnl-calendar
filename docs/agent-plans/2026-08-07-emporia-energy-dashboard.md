@@ -435,3 +435,7 @@ and no issue was created.
   metadata-only live adapter check returned exactly one mains plus fourteen
   physical channels. All 50 repository tests pass and the regenerated sample is
   a true `1872x1404` 4-bit grayscale PNG. Chunks 3-4 remain intentionally pending.
+- 2026-08-07: Iterated on the sample renderer from user feedback: removed the
+  Today/Yesterday legend, removed all subplot/card frames and grid guides, and
+  adopted a consistent despined treatment with inset left/bottom axes. The
+  regenerated 4-bit sample passes all 51 repository tests.
