@@ -34,6 +34,7 @@ GRID_RIGHT = 1372
 SUMMARY_LEFT = 1410
 SUMMARY_RIGHT = W - CANVAS_MARGIN
 PANEL_GAP = 12
+GRID_SUBTITLE = "CUMULATIVE ENERGY • kWh SINCE MIDNIGHT • VALUES: TODAY / YESTERDAY"
 
 WHITE = 255
 BLACK = 0
@@ -138,6 +139,12 @@ def panel_plot_box(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
 def draw_header(draw: ImageDraw.ImageDraw, data: EnergyDashboardData) -> None:
     draw.text((CANVAS_MARGIN, 27), "HOME ENERGY", font=FONTS["title"], fill=BLACK)
     draw.text(
+        (CANVAS_MARGIN, 76),
+        GRID_SUBTITLE,
+        font=FONTS["subtitle"],
+        fill=TEXT_GRAY,
+    )
+    draw.text(
         (SUMMARY_LEFT, 43),
         "7-DAY OVERVIEW",
         font=FONTS["subtitle"],
@@ -153,11 +160,9 @@ def draw_energy_panel(
     emphasize: bool,
 ) -> None:
     x0, y0, x1, y1 = box
-    label = ellipsize(draw, series.label, FONTS["panel"], x1 - x0 - 118)
+    label, totals, totals_x = panel_header_layout(draw, series, box)
     draw.text((x0 + 10, y0 + 7), label, font=FONTS["panel"], fill=BLACK)
-    totals = f"{series.today_kwh:.2f} / {series.yesterday_kwh:.2f}"
-    totals_width, _ = text_wh(draw, totals, FONTS["panel_value"])
-    draw.text((x1 - totals_width - 10, y0 + 9), totals, font=FONTS["panel_value"], fill=TEXT_GRAY)
+    draw.text((totals_x, y0 + 9), totals, font=FONTS["panel_value"], fill=TEXT_GRAY)
 
     plot = panel_plot_box(box)
     px0, py0, px1, py1 = plot
@@ -178,6 +183,33 @@ def draw_energy_panel(
 
     draw_series_line(draw, series.yesterday, plot, maximum, YESTERDAY_GRAY, 3, False)
     draw_series_line(draw, series.today, plot, maximum, BLACK, 5, True)
+
+
+def panel_header_layout(
+    draw: ImageDraw.ImageDraw,
+    series: EnergyPlotSeries,
+    box: tuple[int, int, int, int],
+) -> tuple[str, str, int]:
+    """Fit a circuit name beside explicit today/yesterday cumulative kWh totals."""
+
+    x0, _, x1, _ = box
+    totals = panel_totals_text(series)
+    totals_width, _ = text_wh(draw, totals, FONTS["panel_value"])
+    totals_x = x1 - totals_width - 10
+    label_width = max(1, totals_x - (x0 + 10) - 8)
+    label = ellipsize(draw, series.label, FONTS["panel"], label_width)
+    return label, totals, round(totals_x)
+
+
+def panel_totals_text(series: EnergyPlotSeries) -> str:
+    return (
+        f"{panel_kwh(series.today_kwh)} / "
+        f"{panel_kwh(series.yesterday_kwh)} kWh"
+    )
+
+
+def panel_kwh(value: float) -> str:
+    return f"{value:.1f}" if abs(value) >= 1 else f"{value:.2f}"
 
 
 def panel_y_max(series: EnergyPlotSeries) -> float:

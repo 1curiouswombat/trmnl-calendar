@@ -7,14 +7,21 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from PIL import Image, ImageDraw
+
 from trmnl_weekly_calendar.energy_data import CumulativeEnergyPoint, mock_energy_dashboard
 from trmnl_weekly_calendar.energy_render import (
     DISPLAY_DAYS,
+    FONTS,
+    GRID_SUBTITLE,
     H,
     PANEL_COUNT,
     W,
     panel_box,
+    panel_header_layout,
+    panel_kwh,
     panel_plot_box,
+    panel_totals_text,
     panel_y_max,
     plot_point,
     render_energy_image,
@@ -67,6 +74,27 @@ class EnergyRenderTests(unittest.TestCase):
 
         self.assertEqual(image.getpixel((1410, 164)), 255)
         self.assertEqual(image.getpixel((1428, 244)), 105)
+
+    def test_grid_and_panel_totals_make_cumulative_kwh_explicit(self) -> None:
+        self.assertEqual(
+            GRID_SUBTITLE,
+            "CUMULATIVE ENERGY • kWh SINCE MIDNIGHT • VALUES: TODAY / YESTERDAY",
+        )
+        self.assertEqual(panel_kwh(12.345), "12.3")
+        self.assertEqual(panel_kwh(0.456), "0.46")
+
+        image = Image.new("L", (W, H), 255)
+        draw = ImageDraw.Draw(image)
+        for index, series in enumerate(stable_plot_series(self.data.series)):
+            x0, _, _, _ = panel_box(index)
+            label, totals, totals_x = panel_header_layout(
+                draw, series, panel_box(index)
+            )
+            label_width = draw.textbbox((0, 0), label, font=FONTS["panel"])[2]
+
+            self.assertEqual(totals, panel_totals_text(series))
+            self.assertTrue(totals.endswith(" kWh"))
+            self.assertLessEqual(x0 + 10 + label_width + 8, totals_x)
 
     def test_today_line_stops_at_latest_sample(self) -> None:
         total = stable_plot_series(self.data.series)[0]

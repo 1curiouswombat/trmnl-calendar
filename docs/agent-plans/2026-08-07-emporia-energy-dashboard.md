@@ -454,3 +454,8 @@ and no issue was created.
   suite and compileall pass, the worktree scope is clean, weekly/month routes
   remain healthy, and the public energy Redirect JSON and fingerprinted PNG both
   return HTTP 200. The implementation plan is complete.
+- 2026-08-07: Clarified the 24-hour grid's units after live review without
+  changing its math: the page now states that lines are cumulative kWh since
+  midnight, identifies panel values as Today / Yesterday, and appends `kWh` to
+  each compact endpoint pair. The regenerated sample passes focused rendering
+  checks and remains true 4-bit grayscale.
