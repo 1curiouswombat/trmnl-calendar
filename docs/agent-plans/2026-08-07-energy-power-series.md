@@ -150,5 +150,7 @@ Not configured.
   daily kWh totals and seven-day bars. Focused energy tests pass (24), the full
   suite passes (59), compileall and diff checks pass, and the regenerated sample
   is an exact 1872x1404 4-bit grayscale PNG.
-- 2026-08-07: Final review found no behavioral or integration issues. Remaining
-  verification is limited to regenerating and inspecting the deployed live image.
+- 2026-08-07: Final review found no behavioral or integration issues. Restarted
+  the service, regenerated and visually inspected live Emporia data, and verified
+  the public Redirect JSON and fingerprinted 4-bit PNG at fingerprint
+  `38fc39dc57ce6e0c`.
