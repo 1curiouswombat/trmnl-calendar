@@ -154,3 +154,10 @@ Not configured.
   incremental current-month `1D` refreshes, month-boundary pruning, month-to-date
   totals including today's partial buckets, and residual Balance calculation.
   All 18 focused energy-data tests, compileall, and diff checks pass.
+- 2026-08-07: Chunk 2 DONE. Total is pinned first and all physical circuits plus
+  Balance sort by descending `month_kwh` with deterministic ties. Regenerated and
+  visually inspected mock and live images; the full 63-test suite, compileall,
+  diff check, and exact 1872x1404 4-bit PNG checks pass.
+- 2026-08-07: Final review found no correctness, integration, regression, or
+  unrelated-change findings. Verified live rankings against the persisted monthly
+  totals and published public fingerprint `f5b74fcea3e6b28a`.

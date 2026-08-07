@@ -3,6 +3,7 @@ from __future__ import annotations
 import struct
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -44,13 +45,31 @@ class EnergyRenderTests(unittest.TestCase):
         self.assertEqual(image.size, (W, H))
         self.assertEqual(image.mode, "L")
 
-    def test_panel_order_and_grid_are_stable(self) -> None:
+    def test_panels_sort_by_month_usage_with_total_pinned_first(self) -> None:
         series = stable_plot_series(self.data.series)
 
         self.assertEqual(len(series), PANEL_COUNT)
         self.assertEqual(series[0].key, "total")
-        self.assertEqual(series[-1].key, "balance")
+        self.assertEqual(
+            [item.month_kwh for item in series[1:]],
+            sorted((item.month_kwh for item in series[1:]), reverse=True),
+        )
         self.assertEqual(len({panel_box(index) for index in range(PANEL_COUNT)}), PANEL_COUNT)
+
+    def test_month_usage_ties_have_deterministic_label_and_key_order(self) -> None:
+        total = next(item for item in self.data.series if item.key == "total")
+        tied = [
+            replace(item, month_kwh=1.0)
+            for item in reversed(self.data.series)
+            if item.key != "total"
+        ]
+
+        ordered = stable_plot_series([*tied, total])
+
+        self.assertEqual(
+            [(item.label.casefold(), item.key) for item in ordered[1:]],
+            sorted((item.label.casefold(), item.key) for item in tied),
+        )
 
     def test_small_multiples_are_despined_without_legend_or_grid_guides(self) -> None:
         image = render_energy_image(self.data)

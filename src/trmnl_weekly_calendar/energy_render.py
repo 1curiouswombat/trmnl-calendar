@@ -104,12 +104,14 @@ def render_energy_image(
 
 
 def stable_plot_series(series: Sequence[EnergyPlotSeries]) -> tuple[EnergyPlotSeries, ...]:
-    """Keep Total first and Balance last while preserving physical-channel order."""
+    """Keep Total first, then rank every other panel by month-to-date energy."""
 
     total = [item for item in series if item.key == "total"]
-    balance = [item for item in series if item.key == "balance"]
-    physical = [item for item in series if item.key not in {"total", "balance"}]
-    ordered = tuple(total + physical + balance)
+    circuits = sorted(
+        (item for item in series if item.key != "total"),
+        key=lambda item: (-item.month_kwh, item.label.casefold(), item.key),
+    )
+    ordered = tuple(total + circuits)
     if ordered and len(ordered) != PANEL_COUNT:
         raise ValueError(f"energy dashboard requires {PANEL_COUNT} plot series")
     return ordered
