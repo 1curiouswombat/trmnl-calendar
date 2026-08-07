@@ -268,7 +268,7 @@ def draw_daily_bars(
             font=FONTS["chart_value"],
             fill=BLACK,
         )
-        day_label = item.day.strftime("%a")[0]
+        day_label = item.day.strftime("%a")[:2]
         if is_today:
             day_label += "*"
         day_width, _ = text_wh(draw, day_label, FONTS["chart_day"])

@@ -428,3 +428,10 @@ and no issue was created.
   two seven-day summary bar charts, a deterministic rendering CLI, six focused
   renderer tests, and `outputs/energy-dashboard.png`. Status: `DONE`; native
   visual inspection passed, with mock-data realism reserved for final review.
+- 2026-08-07: Final review for the user-requested Chunk 1-2 scope fixed merged
+  Emporia parent/source channel duplication, retained the unnamed mains channel,
+  added missed-interval backfill detection, aligned mock circuit names/order and
+  today's total bar with the plot, and clarified two-letter day labels. A
+  metadata-only live adapter check returned exactly one mains plus fourteen
+  physical channels. All 50 repository tests pass and the regenerated sample is
+  a true `1872x1404` 4-bit grayscale PNG. Chunks 3-4 remain intentionally pending.

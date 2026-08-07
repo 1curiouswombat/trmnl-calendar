@@ -138,7 +138,12 @@ class PyEmVueAdapter:
             is_main = name.casefold() == "main" or str(getattr(native, "type", "")).casefold() == "main"
             if is_main and main_seen:
                 continue
-            if not name:
+            # Emporia exposes a merged circuit and its source channel as separate
+            # device metadata records. Keep the parent aggregate only or the same
+            # load (for example a two-pole dryer) appears twice in the dashboard.
+            if not is_main and getattr(native, "parent_channel_num", None) not in {None, ""}:
+                continue
+            if not name and not is_main:
                 continue
             key = "total" if is_main else f"circuit-{channel_slug(number)}"
             public = EmporiaChannel(key, "Total" if is_main else name, number, is_main)
@@ -332,8 +337,13 @@ def refresh_energy_state(
     result.timezone = tz_name
     result.channels = list(channels)
 
+    latest_completed = floor_instant(now, QUARTER) - QUARTER
     needs_backfill = force or any(
-        not samples_cover(result.quarter_samples.get(channel.key, []), window_start)
+        not samples_cover(
+            result.quarter_samples.get(channel.key, []),
+            window_start,
+            latest_completed,
+        )
         for channel in channels
     )
     if needs_backfill:
@@ -438,14 +448,25 @@ def mock_energy_dashboard(now: datetime | None = None) -> EnergyDashboardData:
     tz = ZoneInfo(DEFAULT_TIMEZONE)
     today = now.astimezone(tz).date()
     channels = [EmporiaChannel("total", "Total", "1,2,3", True)]
-    labels = [
-        "Air Conditioner", "Furnace + Radon Fan", "Water Heater", "Refrigerator",
-        "WiFi", "1st Floor Office", "TV", "EV + Addition", "Microwave + Hood",
-        "Dishwasher", "Sump Pump", "Dryer", "Kitchen Outlets", "Laundry",
+    circuits = [
+        ("1", "WiFi"),
+        ("2", "1st Floor Office"),
+        ("3", "TV"),
+        ("4", "Air Conditioner"),
+        ("5", "Furnace + Radon Fan"),
+        ("8", "Oven"),
+        ("9", "Microwave + Range Hood"),
+        ("10", "Dishwasher"),
+        ("11", "Sump Pump"),
+        ("12", "Refrigerator"),
+        ("13", "Water Heater"),
+        ("15", "Clothes Washer"),
+        ("97", "EV + Addition Subpanel"),
+        ("98", "Dryer"),
     ]
     channels.extend(
-        EmporiaChannel(f"circuit-{index}", label, str(index), False)
-        for index, label in enumerate(labels, 1)
+        EmporiaChannel(f"circuit-{channel_slug(number)}", label, number, False)
+        for number, label in circuits
     )
     state = EnergyState(timezone=DEFAULT_TIMEZONE, channels=channels, updated_at=now)
     day_start = local_midnight(today - timedelta(days=7), tz).astimezone(UTC)
@@ -463,14 +484,43 @@ def mock_energy_dashboard(now: datetime | None = None) -> EnergyDashboardData:
                 value = base * (0.35 + wave) * (1 + ((local.toordinal() + channel_index) % 4) * 0.08)
             samples.append(TimedEnergySample(stamp, value))
         state.quarter_samples[channel.key] = samples
-    tv_key = next(channel.key for channel in channels if channel.label == "TV")
-    del tv_key  # TV minutes are independently deterministic.
+
+    # Keep the synthetic physical circuits below mains at every bucket so the
+    # derived Balance is realistic and monotonic instead of disappearing when
+    # mock circuit shapes happen to overlap.
+    mains_by_stamp = {
+        sample.timestamp: sample.kwh for sample in state.quarter_samples["total"]
+    }
+    physical_keys = [channel.key for channel in channels if not channel.is_main]
+    physical_by_stamp = {
+        key: {sample.timestamp: sample.kwh for sample in state.quarter_samples[key]}
+        for key in physical_keys
+    }
+    physical_totals = {
+        stamp: sum(physical_by_stamp[key].get(stamp, 0.0) for key in physical_keys)
+        for stamp in mains_by_stamp
+    }
+    for key in physical_keys:
+        state.quarter_samples[key] = [
+            TimedEnergySample(
+                sample.timestamp,
+                sample.kwh
+                * min(
+                    1.0,
+                    mains_by_stamp[sample.timestamp]
+                    * 0.94
+                    / max(physical_totals[sample.timestamp], 1e-9),
+                ),
+            )
+            for sample in state.quarter_samples[key]
+        ]
+
     for index in range(int((now - day_start) / MINUTE) + 1):
         stamp = day_start + index * MINUTE
         local = stamp.astimezone(tz)
         on = 18 <= local.hour < 22 or (local.weekday() >= 5 and 10 <= local.hour < 12)
         state.tv_minutes.append(TimedEnergySample(stamp, (92 if on else 7) / 60_000))
-    for offset in range(7):
+    for offset in range(1, 7):
         day = today - timedelta(days=offset)
         state.daily_mains[day] = 20.0 + ((day.toordinal() * 7) % 19) * 1.15
     return dashboard_from_state(state, now, source="mock", message="Sample energy data")
@@ -725,8 +775,14 @@ def quarantine_corrupt(path: Path) -> None:
         pass
 
 
-def samples_cover(samples: Sequence[TimedEnergySample], start: datetime) -> bool:
-    return bool(samples) and min(item.timestamp for item in samples) <= start + QUARTER
+def samples_cover(
+    samples: Sequence[TimedEnergySample],
+    start: datetime,
+    end: datetime | None = None,
+) -> bool:
+    if not samples or min(item.timestamp for item in samples) > start + QUARTER:
+        return False
+    return end is None or max(item.timestamp for item in samples) >= end
 
 
 def local_midnight(day: date, tz: ZoneInfo) -> datetime:

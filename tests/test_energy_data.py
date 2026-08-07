@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -14,6 +15,7 @@ from trmnl_weekly_calendar.energy_data import (
     EmporiaChannel,
     EnergyState,
     EnergyStateStore,
+    PyEmVueAdapter,
     TimedEnergySample,
     bounded_chunks,
     dashboard_from_state,
@@ -64,6 +66,41 @@ class FakeEmporiaClient:
 
 
 class EnergyDataTests(unittest.TestCase):
+    def test_adapter_uses_merged_parent_without_duplicate_source_channel(self):
+        channels = [
+            SimpleNamespace(
+                channel_num="1,2,3",
+                name=None,
+                type="Main",
+                parent_channel_num=None,
+                device_gid=123,
+            ),
+            SimpleNamespace(
+                channel_num="16",
+                name="Drier",
+                type="FiftyAmp",
+                parent_channel_num="98",
+                device_gid=123,
+            ),
+            SimpleNamespace(
+                channel_num="98",
+                name="Drier",
+                type="Merged",
+                parent_channel_num=None,
+                device_gid=123,
+            ),
+        ]
+        adapter = PyEmVueAdapter.__new__(PyEmVueAdapter)
+        adapter._vue = SimpleNamespace(
+            get_devices=lambda: [SimpleNamespace(device_gid=123, channels=channels)]
+        )
+        adapter._native = {}
+        adapter._device_gids = []
+
+        discovered = adapter._discover_channels()
+
+        self.assertEqual(["total", "circuit-98"], [item.key for item in discovered])
+
     def test_samples_require_aware_time_and_incoming_replaces_duplicate(self):
         with self.assertRaises(ValueError):
             TimedEnergySample(datetime(2026, 1, 1), 1)
@@ -179,6 +216,23 @@ class EnergyDataTests(unittest.TestCase):
         total = {item.timestamp: item.kwh for item in refreshed.quarter_samples["total"]}
         self.assertEqual(0.5, total[bucket])
 
+    def test_refresh_backfills_when_recent_quarter_samples_have_a_gap(self):
+        now = datetime(2026, 8, 7, 18, 7, tzinfo=UTC)
+        fake = FakeEmporiaClient(now)
+        start = datetime(2026, 8, 6, 6, tzinfo=UTC)
+        stale_rows = [
+            TimedEnergySample(start + index * timedelta(minutes=15), 0.1)
+            for index in range(80)
+        ]
+        state = EnergyState(
+            channels=list(fake.channels()),
+            quarter_samples={channel.key: list(stale_rows) for channel in fake.channels()},
+        )
+
+        refresh_energy_state(fake, state, now)
+
+        self.assertTrue(any(scale == "15MIN" for _, _, _, scale in fake.chart_calls))
+
     def test_no_credentials_returns_mock_and_configured_failure_is_unavailable(self):
         now = datetime(2026, 8, 7, tzinfo=UTC)
         with patch.dict(os.environ, {}, clear=True):
@@ -216,6 +270,8 @@ class EnergyDataTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual("total", first.series[0].key)
         self.assertEqual("balance", first.series[-1].key)
+        self.assertEqual("WiFi", first.series[1].label)
+        self.assertEqual(first.series[0].today_kwh, first.daily_mains[-1].value)
 
 
 if __name__ == "__main__":
