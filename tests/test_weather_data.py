@@ -63,7 +63,7 @@ class WeatherDataTests(unittest.TestCase):
             "properties": {
                 "periods": [
                     {
-                        "startTime": "2026-06-13T09:00:00-06:00",
+                        "startTime": "2026-06-11T09:00:00-06:00",
                         "isDaytime": True,
                         "temperature": 76,
                         "temperatureUnit": "F",
@@ -76,7 +76,8 @@ class WeatherDataTests(unittest.TestCase):
         days = weather_data.days_from_nws_forecast(payload, date(2026, 6, 7), ZoneInfo("America/Denver"))
 
         self.assertEqual(days[0], ("SUN", "7", "cloud", "-- / --"))
-        self.assertEqual(days[6], ("SAT", "13", "clear", "76 / --"))
+        self.assertEqual(days[4], ("THU", "11", "clear", "76 / --"))
+        self.assertEqual(len(days), 5)
 
     def test_open_meteo_forecast_uses_daily_temperature_and_weather_code(self) -> None:
         payload = {
@@ -117,10 +118,10 @@ class WeatherDataTests(unittest.TestCase):
         }
         history_payload = {
             "daily": {
-                "time": ["2026-06-07", "2026-06-08"],
-                "temperature_2m_max": [88, 76],
-                "temperature_2m_min": [51, 49],
-                "weather_code": [51, 2],
+                "time": ["2026-06-07", "2026-06-08", "2026-06-11"],
+                "temperature_2m_max": [88, 76, 70],
+                "temperature_2m_min": [51, 49, 47],
+                "weather_code": [51, 2, 0],
             }
         }
         urls: list[str] = []
@@ -151,9 +152,10 @@ class WeatherDataTests(unittest.TestCase):
         self.assertEqual(source, "nws")
         self.assertEqual(days[0], ("SUN", "7", "rain", "88 / 51"))
         self.assertEqual(days[1], ("MON", "8", "partly", "76 / 49"))
-        self.assertEqual(days[6], ("SAT", "13", "clear", "76 / 50"))
+        self.assertEqual(days[4], ("THU", "11", "clear", "70 / 47"))
+        self.assertEqual(len(days), 5)
         self.assertTrue(any("start_date=2026-06-07" in url for url in urls))
-        self.assertTrue(any("end_date=2026-06-12" in url for url in urls))
+        self.assertTrue(any("end_date=2026-06-11" in url for url in urls))
 
     def test_load_weekly_weather_returns_none_without_configuration(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

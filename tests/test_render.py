@@ -8,6 +8,7 @@ from trmnl_weekly_calendar.render import (
     Event,
     H,
     W,
+    WEEKLY_DAY_COUNT,
     allocate_timed_event_lanes,
     clipped_segments,
     day_column_edges,
@@ -86,9 +87,10 @@ class RenderLayoutTests(unittest.TestCase):
 
     def test_current_day_column_is_wider(self) -> None:
         edges = day_column_edges(100, 800, 3)
-        widths = [edges[index + 1] - edges[index] for index in range(7)]
+        widths = [edges[index + 1] - edges[index] for index in range(WEEKLY_DAY_COUNT)]
 
         self.assertGreater(widths[3], widths[2])
+        self.assertEqual(len(edges), WEEKLY_DAY_COUNT + 1)
         self.assertEqual(edges[0], 100)
         self.assertEqual(edges[-1], 800)
 

@@ -10,6 +10,11 @@ from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont, features
 
 try:
+    from trmnl_weekly_calendar.constants import WEEKLY_DAY_COUNT
+except ModuleNotFoundError:
+    from constants import WEEKLY_DAY_COUNT
+
+try:
     from trmnl_weekly_calendar.png_encode import encode_png_grayscale_4bit, quantize_grayscale_4bit
 except ModuleNotFoundError:
     from png_encode import encode_png_grayscale_4bit, quantize_grayscale_4bit
@@ -146,14 +151,15 @@ F = {
     "date": font(ROBOTO_SERIF, 31, "Regular"),
     "weather": font(ROBOTO_FLEX, 26, "Regular", browser_optical_size=True),
     "time": font(ROBOTO_SERIF, 27, "Bold"),
-    "event": font(ROBOTO_FLEX, 26, "Regular", browser_optical_size=True),
-    "event_small": font(ROBOTO_FLEX, 22, "Regular", browser_optical_size=True),
+    "event": font(MONTH_EVENT_FONT, 26, "Regular", optical_size=MONTH_EVENT_OPTICAL_SIZE),
+    "event_small": font(MONTH_EVENT_FONT, 22, "Regular", optical_size=MONTH_EVENT_OPTICAL_SIZE),
     "current": font(ROBOTO_SERIF, 31, "Bold"),
     "now": font(ROBOTO_FLEX, 22, "Regular", browser_optical_size=True),
-    "tiny": font(ROBOTO_FLEX, 20, "Regular", browser_optical_size=True),
-    "month_event": font(MONTH_EVENT_FONT, 20, "Regular", optical_size=MONTH_EVENT_OPTICAL_SIZE),
-    "month_time": font(MONTH_TIME_FONT, 20, "Bold", optical_size=MONTH_TIME_OPTICAL_SIZE),
-    "month_tiny": font(MONTH_EVENT_FONT, 18, "Regular", optical_size=MONTH_EVENT_OPTICAL_SIZE),
+    "tiny": font(MONTH_EVENT_FONT, 20, "Regular", optical_size=MONTH_EVENT_OPTICAL_SIZE),
+    "month_event": font(MONTH_EVENT_FONT, 22, "Regular", optical_size=MONTH_EVENT_OPTICAL_SIZE),
+    "month_time": font(MONTH_TIME_FONT, 22, "Bold", optical_size=MONTH_TIME_OPTICAL_SIZE),
+    "month_tiny": font(MONTH_EVENT_FONT, 20, "Regular", optical_size=MONTH_EVENT_OPTICAL_SIZE),
+    "month_boundary": font(ROBOTO_SERIF, 28, "Bold"),
 }
 
 
@@ -222,8 +228,6 @@ MOCK_DAYS = [
     ("TUE", "9", "rain", "61 / 47"),
     ("WED", "10", "partly", "70 / 50"),
     ("THU", "11", "wind", "76 / 54"),
-    ("FRI", "12", "clear", "80 / 57"),
-    ("SAT", "13", "storm", "73 / 52"),
 ]
 
 MOCK_ALL_DAY_EVENTS = [
@@ -377,8 +381,8 @@ def time_y(hour: float, top: int, bottom: int) -> float:
 
 
 def day_column_edges(left: int, right: int, highlighted_day: int) -> list[int]:
-    weights = [1.0] * 7
-    if 0 <= highlighted_day <= 6:
+    weights = [1.0] * WEEKLY_DAY_COUNT
+    if 0 <= highlighted_day < WEEKLY_DAY_COUNT:
         weights[highlighted_day] = CURRENT_DAY_WIDTH_WEIGHT
 
     total_weight = sum(weights)
@@ -401,7 +405,8 @@ def start_of_week(today: date | None = None, first_weekday: int = 6) -> date:
 def days_for_week(week_start: date) -> list[tuple[str, str, str, str]]:
     weather = [("clear", "72 / 51"), ("cloud", "68 / 49"), ("rain", "61 / 47"), ("partly", "70 / 50"), ("wind", "76 / 54"), ("clear", "80 / 57"), ("storm", "73 / 52")]
     days = []
-    for i, (kind, temp) in enumerate(weather):
+    for i in range(WEEKLY_DAY_COUNT):
+        kind, temp = weather[i % len(weather)]
         day = week_start + timedelta(days=i)
         days.append((day.strftime("%a").upper(), str(day.day), kind, temp))
     return days
@@ -411,21 +416,25 @@ def allocate_all_day_rows(events: list[AllDayEvent]) -> list[AllDayEvent]:
     occupied_until_by_row: list[int] = []
     allocated: list[AllDayEvent] = []
     for event in sorted(events, key=lambda ev: (ev.start_day, ev.end_day, ev.title)):
+        start_day = max(0, event.start_day)
+        end_day = min(WEEKLY_DAY_COUNT - 1, event.end_day)
+        if start_day > end_day:
+            continue
         row = 0
-        while row < len(occupied_until_by_row) and occupied_until_by_row[row] >= event.start_day:
+        while row < len(occupied_until_by_row) and occupied_until_by_row[row] >= start_day:
             row += 1
         if row == len(occupied_until_by_row):
-            occupied_until_by_row.append(event.end_day)
+            occupied_until_by_row.append(end_day)
         else:
-            occupied_until_by_row[row] = event.end_day
-        allocated.append(AllDayEvent(event.start_day, event.end_day, event.title, row, event.tone))
+            occupied_until_by_row[row] = end_day
+        allocated.append(AllDayEvent(start_day, end_day, event.title, row, event.tone))
     return allocated
 
 
 def allocate_timed_event_lanes(events: list[Event]) -> list[TimedEventLayout]:
-    visible_by_day: list[list[tuple[Event, float, float]]] = [[] for _ in range(7)]
+    visible_by_day: list[list[tuple[Event, float, float]]] = [[] for _ in range(WEEKLY_DAY_COUNT)]
     for event in events:
-        if not 0 <= event.day <= 6:
+        if not 0 <= event.day < WEEKLY_DAY_COUNT:
             continue
         visible_start = max(DAY_START_HOUR, event.start)
         visible_end = min(DAY_END_HOUR, event.end)
@@ -538,14 +547,14 @@ def timed_event_boxes(
 
 def current_marker(week_start: date, now: datetime | None = None) -> tuple[int, float]:
     now = localize_now(now)
-    week_end = week_start + timedelta(days=6)
+    week_end = week_start + timedelta(days=WEEKLY_DAY_COUNT - 1)
     if week_start <= now.date() <= week_end:
         day = (now.date() - week_start).days
         minutes = now.hour * 60 + now.minute + (1 if now.second >= 30 else 0)
         rounded = round(minutes / 15) * 15
         hour = rounded / 60
     else:
-        day = min(6, max(0, (now.date() - week_start).days))
+        day = min(WEEKLY_DAY_COUNT - 1, max(0, (now.date() - week_start).days))
         hour = DAY_START_HOUR
     return day, min(DAY_END_HOUR, max(DAY_START_HOUR, hour))
 
@@ -707,7 +716,10 @@ def render_image(
     now: datetime | None = None,
 ) -> Image.Image:
     local_now = localize_now(now)
-    days = days or days_for_week(week_start)
+    default_days = days_for_week(week_start)
+    days = list(days[:WEEKLY_DAY_COUNT]) if days is not None else default_days
+    if len(days) < WEEKLY_DAY_COUNT:
+        days.extend(default_days[len(days) :])
     all_day_events = allocate_all_day_rows(all_day_events if all_day_events is not None else MOCK_ALL_DAY_EVENTS)
     events = events if events is not None else MOCK_EVENTS
 
@@ -724,7 +736,11 @@ def render_image(
     grid_left = margin_left + time_w
     grid_right = W - margin_right
     current_day = local_now.date()
-    highlighted_day = (current_day - week_start).days if week_start <= current_day <= week_start + timedelta(days=6) else -1
+    highlighted_day = (
+        (current_day - week_start).days
+        if week_start <= current_day < week_start + timedelta(days=WEEKLY_DAY_COUNT)
+        else -1
+    )
     col_edges = day_column_edges(grid_left, grid_right, highlighted_day)
     card_inset_x = 10
     text_pad_x = 20

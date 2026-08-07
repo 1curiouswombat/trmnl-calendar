@@ -35,7 +35,26 @@ class ServerRenderTests(unittest.TestCase):
         self.assertEqual(load_weather.call_args.args[0].isoformat(), "2026-06-13")
         self.assertEqual(captured["week_start"].isoformat(), "2026-06-13")
         self.assertEqual(captured["days"][0][:2], ("SAT", "13"))
-        self.assertEqual(captured["days"][-1][:2], ("FRI", "19"))
+        self.assertEqual(captured["days"][-1][:2], ("WED", "17"))
+
+    def test_month_render_starts_on_current_week(self) -> None:
+        captured = {}
+        generated_at = datetime(2026, 6, 30, 9, 30, tzinfo=ZoneInfo("America/Denver"))
+
+        def fake_render_month_image(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+        with patch.object(server, "load_month_events", return_value=([], "calendar")) as load_month_events:
+            with patch.object(server, "load_weather_forecasts", return_value=(None, "weather")):
+                with patch.object(server, "render_month_image", fake_render_month_image):
+                    image, source = server.render_month(generated_at)
+
+        self.assertIsNotNone(image)
+        self.assertEqual(source, "calendar+weather")
+        self.assertEqual(load_month_events.call_args.args[0].isoformat(), "2026-06-28")
+        self.assertEqual(load_month_events.call_args.kwargs["range_end"].isoformat(), "2026-07-26")
+        self.assertEqual(captured["view_start"].isoformat(), "2026-06-28")
 
     def test_calendar_cache_returns_stale_while_refreshing(self) -> None:
         render_started = Event()

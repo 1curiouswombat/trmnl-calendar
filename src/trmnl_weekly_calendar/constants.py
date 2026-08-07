@@ -1,0 +1,1 @@
+WEEKLY_DAY_COUNT = 5

@@ -22,10 +22,10 @@ from trmnl_weekly_calendar.render import (
 )
 
 
-MONTH_WEEK_ROWS = 5
-MONTH_EVENT_ROW_H = 27
+MONTH_WEEK_ROWS = 4
+MONTH_EVENT_ROW_H = 31
 MONTH_EVENT_ROW_GAP = 6
-MONTH_EVENT_LINE_STEP = 20
+MONTH_EVENT_LINE_STEP = 24
 MONTH_EVENT_MAX_LINES = 3
 MONTH_EVENT_TOP_OFFSET = 52
 MONTH_TODAY_EVENT_TOP_OFFSET = 58
@@ -33,19 +33,22 @@ MONTH_EVENT_TIME_GAP = 6
 MONTH_WEATHER_ICON_SCALE = 0.4
 MONTH_WEATHER_RIGHT_PAD = 16
 MONTH_WEATHER_ICON_GAP = 5
+MONTH_BOUNDARY_LABEL_FILL = 136
+MONTH_BOUNDARY_LABEL_GAP = 14
 
 MonthWeather = dict[date, tuple[str, str]]
 
 
 def render_month_image(
     *,
+    view_start: date | None = None,
     month_start: date | None = None,
     events: list[MonthEvent] | None = None,
     weather: MonthWeather | None = None,
     now: datetime | None = None,
 ) -> Image.Image:
     local_now = localize_now(now)
-    month_start = month_start or local_now.date().replace(day=1)
+    view_start = view_start or start_of_week(month_start or local_now.date())
     events = events or []
     weather = weather or {}
 
@@ -53,13 +56,12 @@ def render_month_image(
     draw = ImageDraw.Draw(img)
 
     margin_x = 58
-    top = 46
-    title_h = 86
+    top = 30
     dow_h = 54
     grid_left = margin_x
     grid_right = W - margin_x
-    grid_top = top + title_h + dow_h
-    grid_bottom = H - 64
+    grid_top = top + dow_h
+    grid_bottom = H - 42
     col_w = (grid_right - grid_left) / 7
     row_h = (grid_bottom - grid_top) / MONTH_WEEK_ROWS
     col_edges = [round(grid_left + i * col_w) for i in range(8)]
@@ -69,13 +71,9 @@ def render_month_image(
     for y in range(0, H, 7):
         draw.line((0, y, W, y), fill=253, width=1)
 
-    title = month_start.strftime("%B %Y").upper()
-    draw.text((grid_left, top + 10), title, font=F["title"], fill=0)
-
     for i, label in enumerate(("SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT")):
-        draw_centered(draw, (col_edges[i], top + title_h, col_edges[i + 1], grid_top), label, F["day"], fill=0)
+        draw_centered(draw, (col_edges[i], top, col_edges[i + 1], grid_top), label, F["day"], fill=0)
 
-    first_day = start_of_week(month_start)
     today = local_now.date()
     events_by_day: dict[date, list[MonthEvent]] = defaultdict(list)
     for event in events:
@@ -83,21 +81,18 @@ def render_month_image(
 
     for row in range(MONTH_WEEK_ROWS):
         for col in range(7):
-            cell_day = first_day + timedelta(days=row * 7 + col)
+            cell_day = view_start + timedelta(days=row * 7 + col)
             x0 = col_edges[col]
             x1 = col_edges[col + 1]
             y0 = row_edges[row]
             y1 = row_edges[row + 1]
-            in_month = cell_day.year == month_start.year and cell_day.month == month_start.month
             is_today = cell_day == today
 
-            if not in_month:
-                draw.rectangle((x0 + 1, y0 + 1, x1 - 1, y1 - 1), fill=251)
             if is_today:
                 draw.rectangle((x0 + 2, y0 + 2, x1 - 2, y1 - 2), fill=CURRENT_DAY_FILL)
 
-            draw_day_number(draw, cell_day, x0, y0, is_today, in_month)
-            draw_month_weather(draw, weather.get(cell_day), x0, y0, x1, in_month)
+            draw_day_number(draw, cell_day, x0, y0, is_today)
+            draw_month_weather(draw, weather.get(cell_day), x0, y0, x1)
             draw_month_events(draw, events_by_day.get(cell_day, []), x0, y0, x1, y1, cell_pad, is_today)
 
     return img
@@ -109,11 +104,10 @@ def draw_day_number(
     x0: int,
     y0: int,
     is_today: bool,
-    in_month: bool,
 ) -> None:
     label = str(cell_day.day)
+    month_label = month_boundary_label(cell_day)
     date_font = F["current"]
-    fill = 0 if in_month else 136
     text_x = x0 + 18
     text_y = y0 + 8
     if is_today:
@@ -121,8 +115,32 @@ def draw_day_number(
         bbox = draw.textbbox((text_x, text_y), label, font=date_font)
         rounded_rect(draw, (bbox[0] - 7, bbox[1] - 4, bbox[2] + 8, bbox[3] + 6), 3, fill=0)
         draw.text((text_x, text_y), label, font=date_font, fill=255)
+        draw_month_boundary_label(draw, month_label, bbox[2] + MONTH_BOUNDARY_LABEL_GAP, text_y, date_font)
         return
-    draw.text((text_x, text_y), label, font=date_font, fill=fill)
+    draw.text((text_x, text_y), label, font=date_font, fill=0)
+    label_w, _label_h = text_wh(draw, label, date_font)
+    draw_month_boundary_label(draw, month_label, text_x + label_w + MONTH_BOUNDARY_LABEL_GAP, text_y, date_font)
+
+
+def month_boundary_label(cell_day: date) -> str:
+    if cell_day.day != 1:
+        return ""
+    return cell_day.strftime("%b").upper()
+
+
+def draw_month_boundary_label(
+    draw: ImageDraw.ImageDraw,
+    label: str,
+    x: float,
+    y: float,
+    date_font,
+) -> None:
+    if not label:
+        return
+    boundary_font = F["month_boundary"]
+    date_ascent, _date_descent = date_font.getmetrics()
+    boundary_ascent, _boundary_descent = boundary_font.getmetrics()
+    draw.text((x, y + date_ascent - boundary_ascent), label, font=boundary_font, fill=MONTH_BOUNDARY_LABEL_FILL)
 
 
 def draw_month_weather(
@@ -131,7 +149,6 @@ def draw_month_weather(
     x0: int,
     y0: int,
     x1: int,
-    in_month: bool,
 ) -> None:
     if weather is None:
         return
@@ -141,13 +158,12 @@ def draw_month_weather(
     if not temp_label:
         return
 
-    fill = 0 if in_month else 136
     temp_w, _temp_h = text_wh(draw, temp_label, F["month_event"])
     text_x = x1 - MONTH_WEATHER_RIGHT_PAD - temp_w
     text_y = y0 + 10
     icon_x = round(text_x - MONTH_WEATHER_ICON_GAP - 18)
-    draw_weather_icon(draw, kind, icon_x, y0 + 25, MONTH_WEATHER_ICON_SCALE, fill=fill)
-    draw.text((text_x, text_y), temp_label, font=F["month_event"], fill=fill)
+    draw_weather_icon(draw, kind, icon_x, y0 + 25, MONTH_WEATHER_ICON_SCALE, fill=0)
+    draw.text((text_x, text_y), temp_label, font=F["month_event"], fill=0)
 
 
 def compact_temperature_label(temp: str) -> str:

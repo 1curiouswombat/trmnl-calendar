@@ -189,10 +189,9 @@ def render_weekly(generated_at: datetime, force: bool = False) -> tuple[Image.Im
 
 
 def render_month(generated_at: datetime, force: bool = False) -> tuple[Image.Image, str]:
-    month_start = generated_at.date().replace(day=1)
-    visible_start = start_of_week(month_start)
+    visible_start = start_of_week(generated_at.date())
     visible_end = visible_start + timedelta(weeks=MONTH_WEEK_ROWS)
-    events, source = load_month_events(month_start, range_end=visible_end, force=force)
+    events, source = load_month_events(visible_start, range_end=visible_end, force=force)
     weather_start = generated_at.date()
     weather_end = weather_start + timedelta(days=7)
     forecasts, weather_source = load_weather_forecasts(weather_start, weather_end, force=force)
@@ -203,7 +202,7 @@ def render_month(generated_at: datetime, force: bool = False) -> tuple[Image.Ima
             for day, forecast in forecasts.items()
             if forecast.has_temperature()
         }
-    image = render_month_image(month_start=month_start, events=events, weather=weather, now=generated_at)
+    image = render_month_image(view_start=visible_start, events=events, weather=weather, now=generated_at)
     return image, f"{source}+{weather_source}"
 
 

@@ -68,6 +68,30 @@ class CalendarDataTests(unittest.TestCase):
         self.assertEqual([event.tone for event in timed], [232, 238])
         self.assertEqual([event.tone for event in all_day], [226])
 
+    def test_weekly_events_are_limited_to_five_day_window(self) -> None:
+        raw_events = [
+            {
+                "summary": "Visible timed",
+                "start": {"dateTime": "2026-06-11T09:00:00-06:00"},
+                "end": {"dateTime": "2026-06-11T10:00:00-06:00"},
+            },
+            {
+                "summary": "Hidden timed",
+                "start": {"dateTime": "2026-06-12T09:00:00-06:00"},
+                "end": {"dateTime": "2026-06-12T10:00:00-06:00"},
+            },
+            {
+                "summary": "Visible all-day",
+                "start": {"date": "2026-06-10"},
+                "end": {"date": "2026-06-13"},
+            },
+        ]
+
+        timed, all_day = calendar_data.parse_events(raw_events, date(2026, 6, 7), ZoneInfo("America/Denver"))
+
+        self.assertEqual([(event.day, event.title) for event in timed], [(4, "Visible timed")])
+        self.assertEqual([(event.start_day, event.end_day, event.title) for event in all_day], [(3, 4, "Visible all-day")])
+
     def test_month_event_tones_follow_calendar_label(self) -> None:
         raw_events = [
             {

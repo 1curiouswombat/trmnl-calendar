@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from trmnl_weekly_calendar.constants import WEEKLY_DAY_COUNT
 from trmnl_weekly_calendar.external_api_log import duration_ms, log_http_call, perf_counter
 
 
@@ -100,7 +101,7 @@ class WeatherCache:
         force: bool = False,
         today: date | None = None,
     ) -> WeatherDays:
-        range_end = week_start + timedelta(days=7)
+        range_end = week_start + timedelta(days=WEEKLY_DAY_COUNT)
         forecasts = self.load_forecasts(
             config,
             week_start,
@@ -376,7 +377,7 @@ def days_from_open_meteo_forecast(payload: Any, week_start: date) -> WeatherDays
 
 def weather_days_from_daily_forecasts(daily: dict[date, DailyForecast], week_start: date) -> WeatherDays:
     days: WeatherDays = []
-    for offset in range(7):
+    for offset in range(WEEKLY_DAY_COUNT):
         day = week_start + timedelta(days=offset)
         forecast = daily.get(day)
         if forecast is not None and forecast.has_temperature():

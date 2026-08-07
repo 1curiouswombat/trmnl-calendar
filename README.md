@@ -52,7 +52,7 @@ python3 -m pip install -e .
 serve-trmnl-calendar
 ```
 
-The weekly plugin renders a rolling 7-day window starting with today as the left-most column. The server exposes:
+The weekly plugin renders a rolling 5-day window starting with today as the left-most column. The month plugin renders a rolling 5-week window starting with the current week. The server exposes:
 
 ```text
 GET /weekly/trmnl.json  Weekly Redirect plugin JSON
@@ -66,11 +66,11 @@ GET /healthz            Health check
 
 The server keeps a rendered-image cache in memory and persists the last-good PNG plus metadata under `outputs/server-cache` by default. When a render bucket expires, `/trmnl.json` and `/image.png` return the previous image immediately while a background refresh generates the next image and fingerprint. On startup, the server loads the persisted render before accepting requests, then prewarms stale weekly and monthly renders in the background. A background prewarm loop also refreshes each render bucket shortly after it starts, so TRMNL usually hits an already-rendered image instead of triggering work itself. Set `TRMNL_RENDER_CACHE_DIR` to move the cache, `TRMNL_PERSIST_RENDER_CACHE=0` to disable the disk cache, or `TRMNL_RENDER_PREWARM_DELAY_SECONDS` to tune the post-bucket prewarm delay.
 
-By default, the server renders the mock events. Set `TRMNL_GOG_COMMAND` to fetch live Google Calendar JSON with `gog`. The command is a template; `{start}` is the week start date and `{end}` is the exclusive week end date.
+By default, the server renders the mock events. Set `TRMNL_GOG_COMMAND` to fetch live Google Calendar JSON with `gog`. The command is a template; `{start}` is the view start date and `{end}` is the exclusive view end date.
 
 ```bash
 export GOG_ACCOUNT='you@example.com'
-export TRMNL_GOG_CALENDARS='Peter St. John=primary,Corbin=Corbin,Family=Family'
+export TRMNL_GOG_CALENDARS='Work=primary,Personal=personal,Family=family'
 export TRMNL_GOG_COMMAND='gog calendar events {calendar} --account {account} --from {start} --to {end} --json --no-input'
 export TRMNL_PUBLIC_BASE_URL='https://your-public-host.example.com'
 serve-trmnl-calendar
@@ -82,7 +82,7 @@ When `TRMNL_GOG_CALENDARS` is set, it is a comma-separated list of `display labe
 For the local Hermes setup, use:
 
 ```bash
-export TRMNL_GOG_CALENDARS='Peter St. John=primary,Corbin=Corbin,Family=Family'
+export TRMNL_GOG_CALENDARS='Work=primary,Personal=personal,Family=family'
 export TRMNL_GOG_COMMAND='gog calendar events {calendar} --account {account} --from {start} --to {end} --all-pages --json --no-input'
 ```
 
@@ -92,23 +92,23 @@ Weekly weather is mock data unless a live provider is configured. The server sup
 
 ```bash
 export TRMNL_WEATHER_PROVIDER='nws'
-export TRMNL_WEATHER_LAT='39.772'
-export TRMNL_WEATHER_LON='-105.231'
+export TRMNL_WEATHER_LAT='YOUR_LATITUDE'
+export TRMNL_WEATHER_LON='YOUR_LONGITUDE'
 export TRMNL_WEATHER_USER_AGENT='trmnl-calendar (you@example.com)'
 ```
 
 For NWS, you can skip the point lookup and use a known grid forecast URL:
 
 ```bash
-export TRMNL_WEATHER_FORECAST_URL='https://api.weather.gov/gridpoints/BOU/55,64/forecast'
+export TRMNL_WEATHER_FORECAST_URL='https://api.weather.gov/gridpoints/OFFICE/X,Y/forecast'
 ```
 
 Or use Open-Meteo daily forecasts:
 
 ```bash
 export TRMNL_WEATHER_PROVIDER='open-meteo'
-export TRMNL_WEATHER_LAT='39.772'
-export TRMNL_WEATHER_LON='-105.231'
+export TRMNL_WEATHER_LAT='YOUR_LATITUDE'
+export TRMNL_WEATHER_LON='YOUR_LONGITUDE'
 ```
 
 Weather data is cached for `TRMNL_WEATHER_TTL_SECONDS`, defaulting to `21600` seconds. Set `TRMNL_WEATHER_ENABLED=0` to force mock weather. The month plugin renders compact weather only for the next 7 days.
@@ -135,10 +135,10 @@ TRMNL_IMAGE_MODE=4bit
 TRMNL_RENDER_CACHE_DIR=outputs/server-cache
 TRMNL_PERSIST_RENDER_CACHE=1
 TRMNL_RENDER_PREWARM_DELAY_SECONDS=5
-TRMNL_GOG_CALENDARS=Peter St. John=primary,Corbin=Corbin,Family=Family
+TRMNL_GOG_CALENDARS=Work=primary,Personal=personal,Family=family
 TRMNL_WEATHER_PROVIDER=nws
-TRMNL_WEATHER_LAT=39.772
-TRMNL_WEATHER_LON=-105.231
+TRMNL_WEATHER_LAT=YOUR_LATITUDE
+TRMNL_WEATHER_LON=YOUR_LONGITUDE
 TRMNL_WEATHER_TTL_SECONDS=21600
 TRMNL_WEEKLY_HISTORICAL_WEATHER=1
 TRMNL_EXTERNAL_API_LOGGING=1
@@ -146,7 +146,7 @@ TRMNL_LOG_LEVEL=INFO
 ```
 
 `TRMNL_IMAGE_MODE=4bit` writes a packed PNG with bit depth `4` and grayscale color type `0`.
-Calendar event fills are assigned from `TRMNL_GOG_CALENDARS` labels: `Peter St. John`, `Corbin`, and `Family` each render with a stable gray fill.
+Calendar event fills are assigned from `TRMNL_GOG_CALENDARS` labels: `Work`, `Personal`, and `Family` each render with a stable gray fill.
 
 For TRMNL Redirect, configure the plugin Web Address to:
 
