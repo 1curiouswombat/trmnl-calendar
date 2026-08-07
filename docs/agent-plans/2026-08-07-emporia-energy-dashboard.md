@@ -424,3 +424,7 @@ and no issue was created.
   runtime calculation, deterministic mock data, and focused tests. Status:
   `DONE_WITH_CONCERNS` because the adapter is signature-checked and unit-tested
   but intentionally has not yet been exercised against the live account.
+- 2026-08-07: Chunk 2 completed with the 4x4 cumulative comparison renderer,
+  two seven-day summary bar charts, a deterministic rendering CLI, six focused
+  renderer tests, and `outputs/energy-dashboard.png`. Status: `DONE`; native
+  visual inspection passed, with mock-data realism reserved for final review.

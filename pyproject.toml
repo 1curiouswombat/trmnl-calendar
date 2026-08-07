@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 render-trmnl-calendar = "trmnl_weekly_calendar.render:render"
+render-trmnl-energy = "trmnl_weekly_calendar.energy_render:render"
 serve-trmnl-calendar = "trmnl_weekly_calendar.server:main"
 
 [tool.setuptools]
