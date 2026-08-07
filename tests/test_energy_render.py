@@ -3,13 +3,13 @@ from __future__ import annotations
 import struct
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw
 
-from trmnl_weekly_calendar.energy_data import CumulativeEnergyPoint, mock_energy_dashboard
+from trmnl_weekly_calendar.energy_data import AveragePowerPoint, mock_energy_dashboard
 from trmnl_weekly_calendar.energy_render import (
     DISPLAY_DAYS,
     FONTS,
@@ -24,6 +24,7 @@ from trmnl_weekly_calendar.energy_render import (
     panel_totals_text,
     panel_y_max,
     plot_point,
+    power_line_segments,
     render_energy_image,
     stable_plot_series,
     write_energy_output,
@@ -75,10 +76,10 @@ class EnergyRenderTests(unittest.TestCase):
         self.assertEqual(image.getpixel((1410, 164)), 255)
         self.assertEqual(image.getpixel((1428, 244)), 105)
 
-    def test_grid_and_panel_totals_make_cumulative_kwh_explicit(self) -> None:
+    def test_grid_distinguishes_plot_power_from_daily_energy_totals(self) -> None:
         self.assertEqual(
             GRID_SUBTITLE,
-            "CUMULATIVE ENERGY • kWh SINCE MIDNIGHT • VALUES: TODAY / YESTERDAY",
+            "15-MIN AVERAGE POWER • kW • DAILY VALUES: TODAY / YESTERDAY kWh",
         )
         self.assertEqual(panel_kwh(12.345), "12.3")
         self.assertEqual(panel_kwh(0.456), "0.46")
@@ -105,15 +106,32 @@ class EnergyRenderTests(unittest.TestCase):
 
         self.assertLess(today_x, yesterday_x)
         self.assertLess(total.today[-1].hour, 24)
-        self.assertEqual(total.yesterday[-1].hour, 24)
+        self.assertLess(total.yesterday[-1].hour, 24)
+        self.assertGreater(total.yesterday[-1].hour, 23.5)
 
-    def test_cumulative_plot_uses_zero_baseline_and_independent_scale(self) -> None:
+    def test_power_plot_uses_zero_baseline_and_independent_readable_scale(self) -> None:
         series = stable_plot_series(self.data.series)
         low_use = min(series[1:-1], key=lambda item: item.yesterday_kwh)
         plot = (10, 20, 250, 120)
 
-        self.assertEqual(plot_point(CumulativeEnergyPoint(0, 0), plot, panel_y_max(low_use)), (10, 120))
+        baseline = AveragePowerPoint(0, 0, datetime(2026, 8, 7, tzinfo=timezone.utc))
+        self.assertEqual(
+            plot_point(baseline, plot, panel_y_max(low_use)), (10, 120)
+        )
         self.assertNotEqual(panel_y_max(series[0]), panel_y_max(low_use))
+        self.assertLess(panel_y_max(low_use), 1)
+
+    def test_power_line_segments_split_at_missing_bucket(self) -> None:
+        start = datetime(2026, 8, 7, tzinfo=timezone.utc)
+        points = (
+            AveragePowerPoint(0.125, 1.0, start),
+            AveragePowerPoint(0.375, 1.2, start + timedelta(minutes=15)),
+            AveragePowerPoint(0.875, 0.8, start + timedelta(minutes=45)),
+        )
+
+        segments = power_line_segments(points)
+
+        self.assertEqual([2, 1], [len(segment) for segment in segments])
 
     def test_daily_charts_have_seven_values_and_today_is_partial(self) -> None:
         self.assertEqual(len(self.data.daily_mains), DISPLAY_DAYS)

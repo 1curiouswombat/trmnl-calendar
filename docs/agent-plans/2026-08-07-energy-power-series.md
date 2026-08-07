@@ -145,3 +145,10 @@ Not configured.
 
 - 2026-08-07: Plan created from user feedback requesting usage versus time rather
   than cumulative energy.
+- 2026-08-07: Chunk 1 completed. The grid now plots each 15-minute bucket as
+  average kW at its midpoint, breaks lines across missing buckets, and preserves
+  daily kWh totals and seven-day bars. Focused energy tests pass (24), the full
+  suite passes (59), compileall and diff checks pass, and the regenerated sample
+  is an exact 1872x1404 4-bit grayscale PNG.
+- 2026-08-07: Final review found no behavioral or integration issues. Remaining
+  verification is limited to regenerating and inspecting the deployed live image.

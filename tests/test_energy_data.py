@@ -17,6 +17,7 @@ from trmnl_weekly_calendar.energy_data import (
     EnergyStateStore,
     PyEmVueAdapter,
     TimedEnergySample,
+    average_power_points,
     bounded_chunks,
     dashboard_from_state,
     derive_balance_samples,
@@ -66,6 +67,20 @@ class FakeEmporiaClient:
 
 
 class EnergyDataTests(unittest.TestCase):
+    def test_quarter_hour_energy_becomes_midpoint_average_power(self):
+        day_start = datetime(2026, 8, 7, tzinfo=UTC)
+        points = average_power_points(
+            [
+                TimedEnergySample(day_start, 0.25),
+                TimedEnergySample(day_start + timedelta(hours=23, minutes=45), -0.1),
+            ],
+            ZoneInfo("UTC"),
+        )
+
+        self.assertEqual([0.125, 23.875], [point.hour for point in points])
+        self.assertEqual([1.0, 0.0], [point.kw for point in points])
+        self.assertEqual(day_start, points[0].timestamp)
+
     def test_adapter_uses_merged_parent_without_duplicate_source_channel(self):
         channels = [
             SimpleNamespace(
@@ -200,6 +215,26 @@ class EnergyDataTests(unittest.TestCase):
         self.assertEqual("Refrigerator", dashboard.series[2].label)
         self.assertEqual(7, len(dashboard.daily_mains))
         self.assertEqual(7, len(dashboard.daily_tv_hours))
+
+    def test_power_points_do_not_change_daily_energy_totals(self):
+        now = datetime(2026, 8, 7, 18, tzinfo=UTC)
+        today = now.astimezone(DENVER).date()
+        start = datetime.combine(today, datetime.min.time(), tzinfo=DENVER).astimezone(UTC)
+        state = EnergyState(
+            channels=[EmporiaChannel("total", "Total", "1,2,3", True)],
+            quarter_samples={
+                "total": [
+                    TimedEnergySample(start, 0.25),
+                    TimedEnergySample(start + timedelta(minutes=15), 0.5),
+                ]
+            },
+        )
+
+        dashboard = dashboard_from_state(state, now, source="emporia")
+
+        self.assertEqual(0.75, dashboard.series[0].today_kwh)
+        self.assertEqual(0.75, dashboard.daily_mains[-1].value)
+        self.assertEqual([1.0, 2.0], [point.kw for point in dashboard.series[0].today])
 
     def test_refresh_uses_incremental_snapshot_and_replaces_partial_bucket(self):
         now = datetime(2026, 8, 7, 18, 7, tzinfo=UTC)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Sequence
 from zoneinfo import ZoneInfo
@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont
 
 from trmnl_weekly_calendar.energy_data import (
-    CumulativeEnergyPoint,
+    AveragePowerPoint,
     DailyEnergyValue,
     EnergyDashboardData,
     EnergyPlotSeries,
@@ -34,7 +34,7 @@ GRID_RIGHT = 1372
 SUMMARY_LEFT = 1410
 SUMMARY_RIGHT = W - CANVAS_MARGIN
 PANEL_GAP = 12
-GRID_SUBTITLE = "CUMULATIVE ENERGY • kWh SINCE MIDNIGHT • VALUES: TODAY / YESTERDAY"
+GRID_SUBTITLE = "15-MIN AVERAGE POWER • kW • DAILY VALUES: TODAY / YESTERDAY kWh"
 
 WHITE = 255
 BLACK = 0
@@ -176,7 +176,7 @@ def draw_energy_panel(
         label_text = str(hour)
         label_width, _ = text_wh(draw, label_text, FONTS["axis"])
         draw.text((x - label_width / 2, py1 + 3), label_text, font=FONTS["axis"], fill=TEXT_GRAY)
-    max_label = compact_number(maximum)
+    max_label = f"{compact_number(maximum)} kW"
     max_width, _ = text_wh(draw, max_label, FONTS["axis"])
     draw.text((px0 - max_width - 5, py0 - 8), max_label, font=FONTS["axis"], fill=TEXT_GRAY)
     draw.text((px0 - 8, py1 - 9), "0", font=FONTS["axis"], fill=TEXT_GRAY, anchor="ra")
@@ -190,7 +190,7 @@ def panel_header_layout(
     series: EnergyPlotSeries,
     box: tuple[int, int, int, int],
 ) -> tuple[str, str, int]:
-    """Fit a circuit name beside explicit today/yesterday cumulative kWh totals."""
+    """Fit a circuit name beside explicit today/yesterday daily kWh totals."""
 
     x0, _, x1, _ = box
     totals = panel_totals_text(series)
@@ -213,7 +213,7 @@ def panel_kwh(value: float) -> str:
 
 
 def panel_y_max(series: EnergyPlotSeries) -> float:
-    values = [point.kwh for point in (*series.yesterday, *series.today)]
+    values = [point.kw for point in (*series.yesterday, *series.today)]
     return rounded_axis_max(max(values, default=0.0))
 
 
@@ -229,31 +229,51 @@ def rounded_axis_max(value: float) -> float:
 
 
 def plot_point(
-    point: CumulativeEnergyPoint,
+    point: AveragePowerPoint,
     plot: tuple[int, int, int, int],
     maximum: float,
 ) -> tuple[int, int]:
     x0, y0, x1, y1 = plot
     x = x0 + min(24.0, max(0.0, point.hour)) / 24 * (x1 - x0)
-    y = y1 - min(maximum, max(0.0, point.kwh)) / maximum * (y1 - y0)
+    y = y1 - min(maximum, max(0.0, point.kw)) / maximum * (y1 - y0)
     return round(x), round(y)
 
 
 def draw_series_line(
     draw: ImageDraw.ImageDraw,
-    points: Sequence[CumulativeEnergyPoint],
+    points: Sequence[AveragePowerPoint],
     plot: tuple[int, int, int, int],
     maximum: float,
     fill: int,
     width: int,
     end_marker: bool,
 ) -> None:
-    coordinates = [plot_point(point, plot, maximum) for point in points]
-    if len(coordinates) >= 2:
-        draw.line(coordinates, fill=fill, width=width, joint="curve")
-    if end_marker and coordinates:
-        x, y = coordinates[-1]
+    segments = power_line_segments(points)
+    for segment in segments:
+        coordinates = [plot_point(point, plot, maximum) for point in segment]
+        if len(coordinates) >= 2:
+            draw.line(coordinates, fill=fill, width=width, joint="curve")
+    if end_marker and points:
+        x, y = plot_point(points[-1], plot, maximum)
         draw.ellipse((x - 5, y - 5, x + 5, y + 5), fill=BLACK)
+
+
+def power_line_segments(
+    points: Sequence[AveragePowerPoint],
+) -> tuple[tuple[AveragePowerPoint, ...], ...]:
+    """Split samples when at least one normal 15-minute interval is missing."""
+
+    if not points:
+        return ()
+    segments: list[list[AveragePowerPoint]] = [[points[0]]]
+    for point in points[1:]:
+        previous = segments[-1][-1]
+        gap = point.timestamp - previous.timestamp
+        adjacent = timedelta(0) < gap <= timedelta(minutes=15)
+        if not adjacent:
+            segments.append([])
+        segments[-1].append(point)
+    return tuple(tuple(segment) for segment in segments)
 
 
 def draw_daily_bars(

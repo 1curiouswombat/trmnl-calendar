@@ -39,9 +39,12 @@ class TimedEnergySample:
 
 
 @dataclass(frozen=True)
-class CumulativeEnergyPoint:
+class AveragePowerPoint:
+    """Average power for one 15-minute bucket, plotted at its local midpoint."""
+
     hour: float
-    kwh: float
+    kw: float
+    timestamp: datetime
 
 
 @dataclass(frozen=True)
@@ -56,8 +59,8 @@ class EnergyPlotSeries:
     key: str
     label: str
     channel_number: str | None
-    yesterday: tuple[CumulativeEnergyPoint, ...]
-    today: tuple[CumulativeEnergyPoint, ...]
+    yesterday: tuple[AveragePowerPoint, ...]
+    today: tuple[AveragePowerPoint, ...]
     yesterday_kwh: float
     today_kwh: float
     yesterday_complete: bool
@@ -558,8 +561,8 @@ def make_plot_series(
         key=channel.key,
         label=normalized_label(channel.label),
         channel_number=channel.channel_number or None,
-        yesterday=cumulative_points(yesterday_samples, tz),
-        today=cumulative_points(today_samples, tz),
+        yesterday=average_power_points(yesterday_samples, tz),
+        today=average_power_points(today_samples, tz),
         yesterday_kwh=sum(item.kwh for item in yesterday_samples),
         today_kwh=sum(item.kwh for item in today_samples),
         yesterday_complete=sample_coverage(yesterday_samples, yesterday, tz, now) >= 0.9,
@@ -567,16 +570,21 @@ def make_plot_series(
     )
 
 
-def cumulative_points(
+def average_power_points(
     samples: Sequence[TimedEnergySample], tz: ZoneInfo
-) -> tuple[CumulativeEnergyPoint, ...]:
-    total = 0.0
-    result = [CumulativeEnergyPoint(0.0, 0.0)]
-    for sample in sorted(samples):
-        total += max(0.0, sample.kwh)
-        local = sample.timestamp.astimezone(tz)
+) -> tuple[AveragePowerPoint, ...]:
+    result: list[AveragePowerPoint] = []
+    for sample in deduplicate_samples(samples):
+        midpoint = sample.timestamp + QUARTER / 2
+        local = midpoint.astimezone(tz)
         hour = local.hour + local.minute / 60 + local.second / 3600
-        result.append(CumulativeEnergyPoint(min(24.0, hour + 0.25), total))
+        result.append(
+            AveragePowerPoint(
+                hour=min(24.0, hour),
+                kw=max(0.0, sample.kwh * 4),
+                timestamp=sample.timestamp,
+            )
+        )
     return tuple(result)
 
 
