@@ -19,6 +19,7 @@ from trmnl_weekly_calendar.energy_data import (
     TimedEnergySample,
     average_power_points,
     bounded_chunks,
+    configured_tv_threshold,
     dashboard_from_state,
     derive_balance_samples,
     expected_minutes,
@@ -69,6 +70,16 @@ class FakeEmporiaClient:
 
 
 class EnergyDataTests(unittest.TestCase):
+    def test_tv_threshold_defaults_to_50_watts_and_allows_override(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(50.0, configured_tv_threshold())
+        with patch.dict(
+            os.environ,
+            {"EMPORIA_TV_ON_THRESHOLD_WATTS": "65"},
+            clear=True,
+        ):
+            self.assertEqual(65.0, configured_tv_threshold())
+
     def test_quarter_hour_energy_becomes_midpoint_average_power(self):
         day_start = datetime(2026, 8, 7, tzinfo=UTC)
         points = average_power_points(

@@ -84,3 +84,11 @@ Not configured.
 ## Progress Log
 
 - 2026-08-07: Plan created for the requested 50 W TV threshold.
+- 2026-08-07: Chunk 1 DONE. Changed the default to 50 W, retained the environment
+  override, and added configuration coverage. All 19 focused energy-data tests and
+  the full 64-test suite pass with compileall and diff checks.
+- 2026-08-07: Final review found no correctness, regression, test-gap, or unrelated
+  change findings. Restarted the service and invalidated only the render cache so
+  cached minute history was reclassified without a full historical refetch. The
+  live 1872x1404 4-bit image was visually verified and published at fingerprint
+  `67aa18ae2b710e2a`.

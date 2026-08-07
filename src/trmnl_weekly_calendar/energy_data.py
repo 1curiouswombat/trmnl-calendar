@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 UTC = timezone.utc
 DEFAULT_TIMEZONE = "America/Denver"
 DEFAULT_TV_CHANNEL_NAME = "TV"
-DEFAULT_TV_THRESHOLD_WATTS = 40.0
+DEFAULT_TV_THRESHOLD_WATTS = 50.0
 QUARTER = timedelta(minutes=15)
 MINUTE = timedelta(minutes=1)
 TV_CHUNK = timedelta(hours=12)
