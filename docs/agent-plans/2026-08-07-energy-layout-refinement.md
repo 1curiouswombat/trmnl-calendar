@@ -150,3 +150,12 @@ Not configured.
 
 - 2026-08-07: Plan created from the revised subplot-title, page-header, bar-height,
   and light-circuit unit requests.
+- 2026-08-07: Chunk 1 DONE. Added the compact left/right page header, centered
+  22 px all-caps panel names with centered kWh totals, full-grid-height summary
+  boxes, a footer below the charts, and adaptive W/kW tick formatting. All 13
+  focused renderer tests and the full 67-test suite pass with compileall, diff,
+  and exact 4-bit PNG checks.
+- 2026-08-07: Final review removed the now-unused centered-header helper and found
+  no remaining correctness, integration, regression, or unrelated-change issues.
+  Mock and live images were visually inspected; live light circuits use W while
+  larger circuits retain kW. Published public fingerprint `a15d0dacbae40c34`.

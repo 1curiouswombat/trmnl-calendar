@@ -12,12 +12,14 @@ from PIL import Image, ImageDraw
 
 from trmnl_weekly_calendar.energy_data import AveragePowerPoint, mock_energy_dashboard
 from trmnl_weekly_calendar.energy_render import (
+    axis_display_unit,
     axis_tick_label,
+    CONTENT_BOTTOM,
     DISPLAY_DAYS,
     FONTS,
-    GRID_SUBTITLE,
-    GRID_TOTALS_KEY,
+    GRID_DESCRIPTION,
     H,
+    HEADER_BOTTOM,
     PANEL_COUNT,
     W,
     panel_box,
@@ -31,6 +33,7 @@ from trmnl_weekly_calendar.energy_render import (
     power_line_segments,
     render_energy_image,
     stable_plot_series,
+    summary_chart_boxes,
     write_energy_output,
     y_tick_values,
 )
@@ -78,7 +81,6 @@ class EnergyRenderTests(unittest.TestCase):
     def test_small_multiples_have_detached_spines_without_grid_guides(self) -> None:
         image = render_energy_image(self.data)
 
-        self.assertEqual(image.crop((1410, 103, 1780, 140)).getextrema(), (255, 255))
         for index in range(PANEL_COUNT):
             box = panel_box(index)
             corners = (
@@ -100,30 +102,35 @@ class EnergyRenderTests(unittest.TestCase):
             x = round(px0 + hour / 24 * (px1 - px0))
             self.assertEqual(image.getpixel((x, py0 + 8)), 255)
 
-        self.assertEqual(image.getpixel((1410, 164)), 255)
-        self.assertEqual(image.getpixel((1428, 244)), 105)
-
-    def test_grid_distinguishes_plot_power_from_daily_energy_totals(self) -> None:
-        self.assertEqual(
-            GRID_SUBTITLE,
-            "15-MIN AVERAGE POWER • kW",
-        )
-        self.assertEqual(GRID_TOTALS_KEY, "PANEL TOTALS: TODAY / YESTERDAY • kWh")
+    def test_compact_header_description_distinguishes_power_and_energy(self) -> None:
+        self.assertIn("W/kW AXES", GRID_DESCRIPTION)
+        self.assertIn("TODAY / YESTERDAY kWh", GRID_DESCRIPTION)
         self.assertEqual(panel_kwh(12.345), "12.3")
         self.assertEqual(panel_kwh(0.456), "0.46")
 
         image = Image.new("L", (W, H), 255)
         draw = ImageDraw.Draw(image)
         for index, series in enumerate(stable_plot_series(self.data.series)):
-            x0, _, _, _ = panel_box(index)
-            label, totals, totals_x = panel_header_layout(
+            x0, _, x1, _ = panel_box(index)
+            label, totals, label_x, totals_x = panel_header_layout(
                 draw, series, panel_box(index)
             )
             label_width = draw.textbbox((0, 0), label, font=FONTS["panel"])[2]
+            totals_width = draw.textbbox((0, 0), totals, font=FONTS["panel_value"])[2]
 
+            self.assertEqual(label, label.upper())
             self.assertEqual(totals, panel_totals_text(series))
             self.assertTrue(totals.endswith(" kWh"))
-            self.assertLessEqual(x0 + 10 + label_width + 8, totals_x)
+            self.assertAlmostEqual((x0 + x1) / 2, label_x + label_width / 2, delta=1)
+            self.assertAlmostEqual((x0 + x1) / 2, totals_x + totals_width / 2, delta=1)
+
+    def test_summary_charts_span_the_full_grid_height(self) -> None:
+        energy_box, screen_time_box = summary_chart_boxes()
+
+        self.assertEqual(HEADER_BOTTOM, energy_box[1])
+        self.assertEqual(CONTENT_BOTTOM, screen_time_box[3])
+        self.assertEqual(energy_box[0], screen_time_box[0])
+        self.assertEqual(energy_box[2], screen_time_box[2])
 
     def test_today_line_stops_at_latest_sample(self) -> None:
         total = stable_plot_series(self.data.series)[0]
@@ -155,9 +162,22 @@ class EnergyRenderTests(unittest.TestCase):
             tuple(round(value, 10) for value in y_tick_values(0.2)),
         )
         self.assertEqual(
-            ("0", "0.0025", "0.005", "0.0075", "0.01"),
+            ("0", "2.5", "5", "7.5", "10"),
             tuple(axis_tick_label(value, 0.01) for value in y_tick_values(0.01)),
         )
+        self.assertEqual("W", axis_display_unit(0.08))
+        self.assertEqual("W", axis_display_unit(0.1))
+        self.assertEqual("kW", axis_display_unit(0.15))
+
+    def test_empty_panel_uses_100_watt_default_scale(self) -> None:
+        empty = replace(
+            stable_plot_series(self.data.series)[0],
+            yesterday=(),
+            today=(),
+        )
+
+        self.assertEqual(0.1, panel_y_max(empty))
+        self.assertEqual("W", axis_display_unit(panel_y_max(empty)))
 
     def test_power_line_segments_split_at_missing_bucket(self) -> None:
         start = datetime(2026, 8, 7, tzinfo=timezone.utc)

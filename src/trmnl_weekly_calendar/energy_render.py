@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Sequence
 from zoneinfo import ZoneInfo
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from trmnl_weekly_calendar.energy_data import (
     AveragePowerPoint,
@@ -28,15 +28,14 @@ GRID_ROWS = 4
 DISPLAY_DAYS = 7
 
 CANVAS_MARGIN = 38
-HEADER_BOTTOM = 124
+HEADER_BOTTOM = 72
 CONTENT_BOTTOM = 1348
 GRID_RIGHT = 1372
 SUMMARY_LEFT = 1410
 SUMMARY_RIGHT = W - CANVAS_MARGIN
 PANEL_GAP = 12
-GRID_CENTER_X = (CANVAS_MARGIN + GRID_RIGHT) // 2
-GRID_SUBTITLE = "15-MIN AVERAGE POWER • kW"
-GRID_TOTALS_KEY = "PANEL TOTALS: TODAY / YESTERDAY • kWh"
+SUMMARY_GAP = 24
+GRID_DESCRIPTION = "15-MIN AVG POWER • W/kW AXES • PANEL TOTALS: TODAY / YESTERDAY kWh"
 SPINE_OFFSET = 6
 Y_TICK_DIVISIONS = 4
 
@@ -53,8 +52,8 @@ ROBOTO_FLEX = FONT_DIR / "RobotoFlex.ttf"
 
 FONTS = {
     "title": font(ROBOTO_SERIF, 42, "Bold"),
-    "subtitle": font(ROBOTO_FLEX, 20, "Regular", browser_optical_size=True),
-    "panel": font(ROBOTO_FLEX, 20, "SemiBold", browser_optical_size=True),
+    "subtitle": font(ROBOTO_FLEX, 18, "Regular", browser_optical_size=True),
+    "panel": font(ROBOTO_FLEX, 22, "SemiBold", browser_optical_size=True),
     "panel_value": font(ROBOTO_FLEX, 18, "Regular", browser_optical_size=True),
     "axis": font(ROBOTO_FLEX, 15, "Regular", browser_optical_size=True),
     "chart_title": font(ROBOTO_SERIF, 29, "Bold"),
@@ -78,13 +77,10 @@ def render_energy_image(
     for index, panel in enumerate(panels):
         draw_energy_panel(draw, panel, panel_box(index), emphasize=index == 0)
 
-    chart_gap = 24
-    chart_top = 164
-    chart_bottom = 1239
-    chart_height = (chart_bottom - chart_top - chart_gap) // 2
+    energy_box, screen_time_box = summary_chart_boxes()
     draw_daily_bars(
         draw,
-        (SUMMARY_LEFT, chart_top, SUMMARY_RIGHT, chart_top + chart_height),
+        energy_box,
         "TOTAL ENERGY",
         dashboard.daily_mains,
         "kWh",
@@ -92,12 +88,7 @@ def render_energy_image(
     )
     draw_daily_bars(
         draw,
-        (
-            SUMMARY_LEFT,
-            chart_top + chart_height + chart_gap,
-            SUMMARY_RIGHT,
-            chart_bottom,
-        ),
+        screen_time_box,
         "TV SCREEN TIME",
         dashboard.daily_tv_hours,
         "hr",
@@ -139,32 +130,35 @@ def panel_box(index: int) -> tuple[int, int, int, int]:
 
 def panel_plot_box(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
     x0, y0, x1, y1 = box
-    return x0 + 44, y0 + 48, x1 - 12, y1 - 34
+    return x0 + 44, y0 + 67, x1 - 12, y1 - 34
+
+
+def summary_chart_boxes() -> tuple[
+    tuple[int, int, int, int], tuple[int, int, int, int]
+]:
+    chart_height = (CONTENT_BOTTOM - HEADER_BOTTOM - SUMMARY_GAP) // 2
+    first_bottom = HEADER_BOTTOM + chart_height
+    return (
+        (SUMMARY_LEFT, HEADER_BOTTOM, SUMMARY_RIGHT, first_bottom),
+        (SUMMARY_LEFT, first_bottom + SUMMARY_GAP, SUMMARY_RIGHT, CONTENT_BOTTOM),
+    )
 
 
 def draw_header(draw: ImageDraw.ImageDraw, data: EnergyDashboardData) -> None:
-    draw_centered_text(draw, "HOME ENERGY", FONTS["title"], 10, GRID_CENTER_X, BLACK)
-    draw_centered_text(draw, GRID_SUBTITLE, FONTS["subtitle"], 62, GRID_CENTER_X, TEXT_GRAY)
-    draw_centered_text(draw, GRID_TOTALS_KEY, FONTS["subtitle"], 88, GRID_CENTER_X, TEXT_GRAY)
+    draw.text((CANVAS_MARGIN, 9), "HOME ENERGY", font=FONTS["title"], fill=BLACK)
+    description_width, _ = text_wh(draw, GRID_DESCRIPTION, FONTS["subtitle"])
     draw.text(
-        (SUMMARY_LEFT, 43),
+        (GRID_RIGHT - description_width, 29),
+        GRID_DESCRIPTION,
+        font=FONTS["subtitle"],
+        fill=TEXT_GRAY,
+    )
+    draw.text(
+        (SUMMARY_LEFT, 29),
         "7-DAY OVERVIEW",
         font=FONTS["subtitle"],
         fill=TEXT_GRAY,
     )
-
-
-def draw_centered_text(
-    draw: ImageDraw.ImageDraw,
-    text: str,
-    text_font: ImageFont.FreeTypeFont,
-    y: int,
-    center_x: int,
-    fill: int,
-) -> None:
-    width, _ = text_wh(draw, text, text_font)
-    draw.text((center_x - width / 2, y), text, font=text_font, fill=fill)
-
 
 def draw_energy_panel(
     draw: ImageDraw.ImageDraw,
@@ -174,9 +168,9 @@ def draw_energy_panel(
     emphasize: bool,
 ) -> None:
     x0, y0, x1, y1 = box
-    label, totals, totals_x = panel_header_layout(draw, series, box)
-    draw.text((x0 + 10, y0 + 7), label, font=FONTS["panel"], fill=BLACK)
-    draw.text((totals_x, y0 + 9), totals, font=FONTS["panel_value"], fill=TEXT_GRAY)
+    label, totals, label_x, totals_x = panel_header_layout(draw, series, box)
+    draw.text((label_x, y0 + 4), label, font=FONTS["panel"], fill=BLACK)
+    draw.text((totals_x, y0 + 34), totals, font=FONTS["panel_value"], fill=TEXT_GRAY)
 
     plot = panel_plot_box(box)
     px0, py0, px1, py1 = plot
@@ -198,7 +192,7 @@ def draw_energy_panel(
         draw.line((left_x - 4, y, left_x, y), fill=FRAME_GRAY, width=1)
         label = axis_tick_label(value, maximum)
         if index == Y_TICK_DIVISIONS:
-            label = f"{label} kW"
+            label = f"{label} {axis_display_unit(maximum)}"
         label_width, label_height = text_wh(draw, label, FONTS["axis"])
         draw.text(
             (left_x - label_width - 6, y - label_height / 2),
@@ -231,29 +225,42 @@ def y_tick_values(maximum: float) -> tuple[float, ...]:
 
 
 def axis_tick_label(value: float, maximum: float) -> str:
-    """Keep quarter-step ticks distinct even on very small circuit scales."""
+    """Format a tick in W for light scales and kW for larger scales."""
 
     if value == 0:
         return "0"
-    step_text = f"{maximum / Y_TICK_DIVISIONS:.6f}".rstrip("0")
+    multiplier = 1_000 if axis_display_unit(maximum) == "W" else 1
+    display_value = value * multiplier
+    display_step = maximum * multiplier / Y_TICK_DIVISIONS
+    step_text = f"{display_step:.6f}".rstrip("0")
     precision = len(step_text.partition(".")[2])
-    return f"{value:.{precision}f}".rstrip("0").rstrip(".")
+    return f"{display_value:.{precision}f}".rstrip("0").rstrip(".")
+
+
+def axis_display_unit(maximum: float) -> str:
+    return "W" if maximum <= 0.1 else "kW"
 
 
 def panel_header_layout(
     draw: ImageDraw.ImageDraw,
     series: EnergyPlotSeries,
     box: tuple[int, int, int, int],
-) -> tuple[str, str, int]:
-    """Fit a circuit name beside explicit today/yesterday daily kWh totals."""
+) -> tuple[str, str, int, int]:
+    """Center an uppercase circuit name above its daily kWh totals."""
 
     x0, _, x1, _ = box
     totals = panel_totals_text(series)
+    available_width = max(1, x1 - x0 - 20)
+    label = ellipsize(draw, series.label.upper(), FONTS["panel"], available_width)
+    label_width, _ = text_wh(draw, label, FONTS["panel"])
     totals_width, _ = text_wh(draw, totals, FONTS["panel_value"])
-    totals_x = x1 - totals_width - 10
-    label_width = max(1, totals_x - (x0 + 10) - 8)
-    label = ellipsize(draw, series.label, FONTS["panel"], label_width)
-    return label, totals, round(totals_x)
+    center_x = (x0 + x1) / 2
+    return (
+        label,
+        totals,
+        round(center_x - label_width / 2),
+        round(center_x - totals_width / 2),
+    )
 
 
 def panel_totals_text(series: EnergyPlotSeries) -> str:
@@ -269,7 +276,8 @@ def panel_kwh(value: float) -> str:
 
 def panel_y_max(series: EnergyPlotSeries) -> float:
     values = [point.kw for point in (*series.yesterday, *series.today)]
-    return rounded_axis_max(max(values, default=0.0))
+    maximum = max(values, default=0.0)
+    return 0.1 if maximum <= 0 else rounded_axis_max(maximum)
 
 
 def rounded_axis_max(value: float) -> float:
@@ -405,7 +413,7 @@ def draw_footer(draw: ImageDraw.ImageDraw, data: EnergyDashboardData) -> None:
     message = f"{source}{freshness}  •  * Today is partial"
     if data.message and data.source != "mock":
         message = f"{message}  •  {data.message}"
-    draw.text((SUMMARY_LEFT, 1271), message, font=FONTS["note"], fill=TEXT_GRAY)
+    draw.text((SUMMARY_LEFT, 1368), message, font=FONTS["note"], fill=TEXT_GRAY)
 
 
 def compact_number(value: float) -> str:
