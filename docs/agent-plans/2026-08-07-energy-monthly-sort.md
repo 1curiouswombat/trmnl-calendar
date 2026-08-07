@@ -150,3 +150,7 @@ Not configured.
 ## Progress Log
 
 - 2026-08-07: Plan created from the request to order plots by total monthly usage.
+- 2026-08-07: Chunk 1 DONE. Added backward-compatible per-channel daily history,
+  incremental current-month `1D` refreshes, month-boundary pruning, month-to-date
+  totals including today's partial buckets, and residual Balance calculation.
+  All 18 focused energy-data tests, compileall, and diff checks pass.

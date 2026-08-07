@@ -63,6 +63,7 @@ class EnergyPlotSeries:
     today: tuple[AveragePowerPoint, ...]
     yesterday_kwh: float
     today_kwh: float
+    month_kwh: float
     yesterday_complete: bool
     today_complete: bool
 
@@ -221,6 +222,7 @@ class EnergyState:
     quarter_samples: dict[str, list[TimedEnergySample]] = field(default_factory=dict)
     tv_minutes: list[TimedEnergySample] = field(default_factory=list)
     daily_mains: dict[date, float] = field(default_factory=dict)
+    daily_channels: dict[str, dict[date, float]] = field(default_factory=dict)
     updated_at: datetime | None = None
 
 
@@ -385,6 +387,33 @@ def refresh_energy_state(
             if sample_day in completed_days:
                 result.daily_mains[sample_day] = sample.kwh
 
+    month_start_day = today.replace(day=1)
+    month_completed_days = {
+        month_start_day + timedelta(days=offset)
+        for offset in range((today - month_start_day).days)
+    }
+    for channel in channels:
+        daily_values = result.daily_channels.setdefault(channel.key, {})
+        if channel.is_main:
+            daily_values.update(
+                {
+                    day: value
+                    for day, value in result.daily_mains.items()
+                    if day in month_completed_days
+                }
+            )
+        missing_days = month_completed_days - daily_values.keys()
+        if force:
+            missing_days = set(month_completed_days)
+        if not missing_days:
+            continue
+        daily_start = local_midnight(min(missing_days), tz).astimezone(UTC)
+        daily_end = local_midnight(today, tz).astimezone(UTC)
+        for sample in client.chart_usage(channel, daily_start, daily_end, "1D"):
+            sample_day = sample.timestamp.astimezone(tz).date()
+            if sample_day in month_completed_days:
+                daily_values[sample_day] = sample.kwh
+
     result.updated_at = now
     prune_state(result, now)
     return result
@@ -404,16 +433,50 @@ def dashboard_from_state(
     channels = canonical_channels(state.channels)
     physical = [item for item in channels if not item.is_main]
     plots: list[EnergyPlotSeries] = []
+    month_start = today.replace(day=1)
+    month_totals: dict[str, float] = {}
     for channel in channels:
         samples = state.quarter_samples.get(channel.key, [])
-        plots.append(make_plot_series(channel, samples, yesterday, today, tz, now))
+        completed_kwh = sum(
+            value
+            for day, value in state.daily_channels.get(channel.key, {}).items()
+            if month_start <= day < today
+        )
+        today_kwh = sum(item.kwh for item in samples_for_day(samples, today, tz))
+        month_totals[channel.key] = completed_kwh + today_kwh
+        plots.append(
+            make_plot_series(
+                channel,
+                samples,
+                yesterday,
+                today,
+                tz,
+                now,
+                month_kwh=month_totals[channel.key],
+            )
+        )
 
     balance_samples = derive_balance_samples(
         state.quarter_samples.get("total", []),
         [state.quarter_samples.get(channel.key, []) for channel in physical],
     )
     balance = EmporiaChannel("balance", "Balance", "", False)
-    plots.append(make_plot_series(balance, balance_samples, yesterday, today, tz, now))
+    balance_month_kwh = max(
+        0.0,
+        month_totals.get("total", 0.0)
+        - sum(month_totals.get(channel.key, 0.0) for channel in physical),
+    )
+    plots.append(
+        make_plot_series(
+            balance,
+            balance_samples,
+            yesterday,
+            today,
+            tz,
+            now,
+            month_kwh=balance_month_kwh,
+        )
+    )
 
     mains_values: list[DailyEnergyValue] = []
     mains_samples = state.quarter_samples.get("total", [])
@@ -526,6 +589,16 @@ def mock_energy_dashboard(now: datetime | None = None) -> EnergyDashboardData:
     for offset in range(1, 7):
         day = today - timedelta(days=offset)
         state.daily_mains[day] = 20.0 + ((day.toordinal() * 7) % 19) * 1.15
+    month_start = today.replace(day=1)
+    for channel_index, channel in enumerate(channels):
+        state.daily_channels[channel.key] = {}
+        for offset in range((today - month_start).days):
+            day = month_start + timedelta(days=offset)
+            if channel.is_main:
+                value = 22.0 + ((day.toordinal() * 5) % 13)
+            else:
+                value = 0.18 + channel_index * 0.21 + ((day.toordinal() + channel_index) % 3) * 0.08
+            state.daily_channels[channel.key][day] = value
     return dashboard_from_state(state, now, source="mock", message="Sample energy data")
 
 
@@ -554,6 +627,8 @@ def make_plot_series(
     today: date,
     tz: ZoneInfo,
     now: datetime,
+    *,
+    month_kwh: float,
 ) -> EnergyPlotSeries:
     yesterday_samples = samples_for_day(samples, yesterday, tz)
     today_samples = samples_for_day(samples, today, tz)
@@ -565,6 +640,7 @@ def make_plot_series(
         today=average_power_points(today_samples, tz),
         yesterday_kwh=sum(item.kwh for item in yesterday_samples),
         today_kwh=sum(item.kwh for item in today_samples),
+        month_kwh=month_kwh,
         yesterday_complete=sample_coverage(yesterday_samples, yesterday, tz, now) >= 0.9,
         today_complete=False,
     )
@@ -647,6 +723,15 @@ def prune_state(state: EnergyState, now: datetime) -> None:
     state.tv_minutes = [sample for sample in state.tv_minutes if sample.timestamp >= minute_cutoff]
     state.daily_mains = {
         day: value for day, value in state.daily_mains.items() if day >= today - timedelta(days=7)
+    }
+    month_start = today.replace(day=1)
+    state.daily_channels = {
+        key: {
+            day: value
+            for day, value in values.items()
+            if month_start <= day <= today
+        }
+        for key, values in state.daily_channels.items()
     }
 
 
@@ -751,6 +836,10 @@ def state_to_json(state: EnergyState) -> dict[str, Any]:
         },
         "tv_minutes": [[iso_z(item.timestamp), item.kwh] for item in state.tv_minutes],
         "daily_mains": {day.isoformat(): value for day, value in state.daily_mains.items()},
+        "daily_channels": {
+            key: {day.isoformat(): value for day, value in values.items()}
+            for key, values in state.daily_channels.items()
+        },
         "updated_at": iso_z(state.updated_at) if state.updated_at else None,
     }
 
@@ -768,6 +857,10 @@ def state_from_json(payload: dict[str, Any]) -> EnergyState:
             for stamp, value in payload.get("tv_minutes", [])
         ],
         daily_mains={date.fromisoformat(day): float(value) for day, value in payload.get("daily_mains", {}).items()},
+        daily_channels={
+            key: {date.fromisoformat(day): float(value) for day, value in values.items()}
+            for key, values in payload.get("daily_channels", {}).items()
+        },
         updated_at=parse_instant(payload["updated_at"]) if payload.get("updated_at") else None,
     )
 

@@ -27,6 +27,8 @@ from trmnl_weekly_calendar.energy_data import (
     mock_energy_dashboard,
     prune_state,
     refresh_energy_state,
+    state_from_json,
+    state_to_json,
     tv_runtime_hours,
 )
 
@@ -171,17 +173,27 @@ class EnergyDataTests(unittest.TestCase):
                     "total": [TimedEnergySample(datetime(2026, 1, 1, tzinfo=UTC), 1.25)]
                 },
                 daily_mains={date(2026, 1, 1): 12.5},
+                daily_channels={"total": {date(2026, 1, 1): 12.5}},
                 updated_at=datetime(2026, 1, 2, tzinfo=UTC),
             )
             store.save(state)
             loaded = store.load()
             self.assertIsNotNone(loaded)
             self.assertEqual(1.25, loaded.quarter_samples["total"][0].kwh)
+            self.assertEqual(12.5, loaded.daily_channels["total"][date(2026, 1, 1)])
             self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
             path.write_text("{password: definitely-not-logged}", encoding="utf-8")
             self.assertIsNone(store.load())
             self.assertFalse(path.exists())
             self.assertEqual(1, len(list(path.parent.glob("state.json.corrupt-*"))))
+
+    def test_state_without_daily_channels_remains_backward_compatible(self):
+        payload = state_to_json(EnergyState())
+        payload.pop("daily_channels")
+
+        loaded = state_from_json(payload)
+
+        self.assertEqual({}, loaded.daily_channels)
 
     def test_pruning_keeps_three_quarter_days_and_eight_minute_dates(self):
         now = datetime(2026, 8, 7, 12, tzinfo=UTC)
@@ -197,11 +209,22 @@ class EnergyDataTests(unittest.TestCase):
                 TimedEnergySample(now - timedelta(days=7), 0),
             ],
             daily_mains={date(2026, 7, 1): 1, date(2026, 8, 6): 2},
+            daily_channels={
+                "total": {
+                    date(2026, 7, 31): 1,
+                    date(2026, 8, 1): 2,
+                    date(2026, 8, 7): 3,
+                }
+            },
         )
         prune_state(state, now)
         self.assertEqual([2], [item.kwh for item in state.quarter_samples["total"]])
         self.assertEqual(1, len(state.tv_minutes))
         self.assertEqual({date(2026, 8, 6): 2}, state.daily_mains)
+        self.assertEqual(
+            {date(2026, 8, 1): 2, date(2026, 8, 7): 3},
+            state.daily_channels["total"],
+        )
 
     def test_refresh_backfills_tv_in_bounded_chunks_and_builds_contract(self):
         now = datetime(2026, 8, 7, 18, tzinfo=UTC)
@@ -215,6 +238,50 @@ class EnergyDataTests(unittest.TestCase):
         self.assertEqual("Refrigerator", dashboard.series[2].label)
         self.assertEqual(7, len(dashboard.daily_mains))
         self.assertEqual(7, len(dashboard.daily_tv_hours))
+
+    def test_monthly_daily_channel_history_is_cached_after_initial_refresh(self):
+        now = datetime(2026, 8, 7, 18, tzinfo=UTC)
+        fake = FakeEmporiaClient(now)
+
+        state = refresh_energy_state(fake, None, now)
+        initial_daily_calls = [call for call in fake.chart_calls if call[3] == "1D"]
+        self.assertTrue(all(channel.key in state.daily_channels for channel in fake.channels()))
+
+        fake.chart_calls.clear()
+        refresh_energy_state(fake, state, now + timedelta(minutes=5))
+
+        self.assertGreaterEqual(len(initial_daily_calls), len(fake.channels()))
+        self.assertFalse(any(scale == "1D" for _, _, _, scale in fake.chart_calls))
+
+    def test_month_kwh_includes_completed_days_today_and_balance(self):
+        now = datetime(2026, 8, 7, 18, tzinfo=UTC)
+        today = now.astimezone(DENVER).date()
+        start = datetime.combine(today, datetime.min.time(), tzinfo=DENVER).astimezone(UTC)
+        state = EnergyState(
+            channels=[
+                EmporiaChannel("total", "Total", "1,2,3", True),
+                EmporiaChannel("circuit-1", "TV", "1"),
+                EmporiaChannel("circuit-2", "Refrigerator", "2"),
+            ],
+            quarter_samples={
+                "total": [TimedEnergySample(start, 2.0)],
+                "circuit-1": [TimedEnergySample(start, 0.5)],
+                "circuit-2": [TimedEnergySample(start, 0.25)],
+            },
+            daily_channels={
+                "total": {date(2026, 8, 1): 10.0, date(2026, 7, 31): 99.0},
+                "circuit-1": {date(2026, 8, 1): 3.0},
+                "circuit-2": {date(2026, 8, 1): 2.0},
+            },
+        )
+
+        dashboard = dashboard_from_state(state, now, source="emporia")
+        monthly = {series.key: series.month_kwh for series in dashboard.series}
+
+        self.assertEqual(12.0, monthly["total"])
+        self.assertEqual(3.5, monthly["circuit-1"])
+        self.assertEqual(2.25, monthly["circuit-2"])
+        self.assertEqual(6.25, monthly["balance"])
 
     def test_power_points_do_not_change_daily_energy_totals(self):
         now = datetime(2026, 8, 7, 18, tzinfo=UTC)
