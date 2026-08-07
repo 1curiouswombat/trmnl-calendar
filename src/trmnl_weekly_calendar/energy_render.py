@@ -28,13 +28,17 @@ GRID_ROWS = 4
 DISPLAY_DAYS = 7
 
 CANVAS_MARGIN = 38
-HEADER_BOTTOM = 102
+HEADER_BOTTOM = 124
 CONTENT_BOTTOM = 1348
 GRID_RIGHT = 1372
 SUMMARY_LEFT = 1410
 SUMMARY_RIGHT = W - CANVAS_MARGIN
 PANEL_GAP = 12
-GRID_SUBTITLE = "15-MIN AVERAGE POWER • kW • DAILY VALUES: TODAY / YESTERDAY kWh"
+GRID_CENTER_X = (CANVAS_MARGIN + GRID_RIGHT) // 2
+GRID_SUBTITLE = "15-MIN AVERAGE POWER • kW"
+GRID_TOTALS_KEY = "PANEL TOTALS: TODAY / YESTERDAY • kWh"
+SPINE_OFFSET = 6
+Y_TICK_DIVISIONS = 4
 
 WHITE = 255
 BLACK = 0
@@ -135,23 +139,31 @@ def panel_box(index: int) -> tuple[int, int, int, int]:
 
 def panel_plot_box(box: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
     x0, y0, x1, y1 = box
-    return x0 + 35, y0 + 48, x1 - 12, y1 - 26
+    return x0 + 44, y0 + 48, x1 - 12, y1 - 34
 
 
 def draw_header(draw: ImageDraw.ImageDraw, data: EnergyDashboardData) -> None:
-    draw.text((CANVAS_MARGIN, 27), "HOME ENERGY", font=FONTS["title"], fill=BLACK)
-    draw.text(
-        (CANVAS_MARGIN, 76),
-        GRID_SUBTITLE,
-        font=FONTS["subtitle"],
-        fill=TEXT_GRAY,
-    )
+    draw_centered_text(draw, "HOME ENERGY", FONTS["title"], 10, GRID_CENTER_X, BLACK)
+    draw_centered_text(draw, GRID_SUBTITLE, FONTS["subtitle"], 62, GRID_CENTER_X, TEXT_GRAY)
+    draw_centered_text(draw, GRID_TOTALS_KEY, FONTS["subtitle"], 88, GRID_CENTER_X, TEXT_GRAY)
     draw.text(
         (SUMMARY_LEFT, 43),
         "7-DAY OVERVIEW",
         font=FONTS["subtitle"],
         fill=TEXT_GRAY,
     )
+
+
+def draw_centered_text(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    text_font: ImageFont.FreeTypeFont,
+    y: int,
+    center_x: int,
+    fill: int,
+) -> None:
+    width, _ = text_wh(draw, text, text_font)
+    draw.text((center_x - width / 2, y), text, font=text_font, fill=fill)
 
 
 def draw_energy_panel(
@@ -170,21 +182,62 @@ def draw_energy_panel(
     px0, py0, px1, py1 = plot
     maximum = panel_y_max(series)
     axis_width = 2 if emphasize else 1
-    draw.line((px0, py0, px0, py1), fill=FRAME_GRAY, width=axis_width)
-    draw.line((px0, py1, px1, py1), fill=FRAME_GRAY, width=axis_width)
+    left_spine, bottom_spine = panel_spines(plot)
+    left_x = left_spine[0]
+    bottom_y = bottom_spine[1]
+    draw.line(left_spine, fill=FRAME_GRAY, width=axis_width)
+    draw.line(bottom_spine, fill=FRAME_GRAY, width=axis_width)
     for hour in (0, 6, 12, 18, 24):
         x = round(px0 + hour / 24 * (px1 - px0))
-        draw.line((x, py1, x, py1 + 4), fill=FRAME_GRAY, width=1)
+        draw.line((x, bottom_y, x, bottom_y + 4), fill=FRAME_GRAY, width=1)
         label_text = str(hour)
         label_width, _ = text_wh(draw, label_text, FONTS["axis"])
-        draw.text((x - label_width / 2, py1 + 3), label_text, font=FONTS["axis"], fill=TEXT_GRAY)
-    max_label = f"{compact_number(maximum)} kW"
-    max_width, _ = text_wh(draw, max_label, FONTS["axis"])
-    draw.text((px0 - max_width - 5, py0 - 8), max_label, font=FONTS["axis"], fill=TEXT_GRAY)
-    draw.text((px0 - 8, py1 - 9), "0", font=FONTS["axis"], fill=TEXT_GRAY, anchor="ra")
+        draw.text((x - label_width / 2, bottom_y + 3), label_text, font=FONTS["axis"], fill=TEXT_GRAY)
+    for index, value in enumerate(y_tick_values(maximum)):
+        y = round(py1 - value / maximum * (py1 - py0))
+        draw.line((left_x - 4, y, left_x, y), fill=FRAME_GRAY, width=1)
+        label = axis_tick_label(value, maximum)
+        if index == Y_TICK_DIVISIONS:
+            label = f"{label} kW"
+        label_width, label_height = text_wh(draw, label, FONTS["axis"])
+        draw.text(
+            (left_x - label_width - 6, y - label_height / 2),
+            label,
+            font=FONTS["axis"],
+            fill=TEXT_GRAY,
+        )
 
     draw_series_line(draw, series.yesterday, plot, maximum, YESTERDAY_GRAY, 3, False)
     draw_series_line(draw, series.today, plot, maximum, BLACK, 5, True)
+
+
+def panel_spines(
+    plot: tuple[int, int, int, int],
+) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
+    """Return detached left and bottom spines outside the data rectangle."""
+
+    x0, y0, x1, y1 = plot
+    return (
+        (x0 - SPINE_OFFSET, y0, x0 - SPINE_OFFSET, y1),
+        (x0, y1 + SPINE_OFFSET, x1, y1 + SPINE_OFFSET),
+    )
+
+
+def y_tick_values(maximum: float) -> tuple[float, ...]:
+    return tuple(
+        maximum * index / Y_TICK_DIVISIONS
+        for index in range(Y_TICK_DIVISIONS + 1)
+    )
+
+
+def axis_tick_label(value: float, maximum: float) -> str:
+    """Keep quarter-step ticks distinct even on very small circuit scales."""
+
+    if value == 0:
+        return "0"
+    step_text = f"{maximum / Y_TICK_DIVISIONS:.6f}".rstrip("0")
+    precision = len(step_text.partition(".")[2])
+    return f"{value:.{precision}f}".rstrip("0").rstrip(".")
 
 
 def panel_header_layout(

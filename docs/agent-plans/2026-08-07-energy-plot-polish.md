@@ -127,3 +127,12 @@ Not configured.
 ## Progress Log
 
 - 2026-08-07: Plan created from the requested header and axis cleanup.
+- 2026-08-07: Chunk 1 DONE. Centered a three-line grid header, moved panels down,
+  detached the axes by six pixels, and added five y ticks without grid lines.
+  Regenerated and visually inspected mock and live images; all 11 focused renderer
+  tests and the full 65-test suite pass with compileall and PNG checks.
+- 2026-08-07: Final review found that generic two-decimal formatting collapsed
+  sub-0.01-kW ticks to repeated zeros. Added scale-aware precision and regression
+  coverage, then rechecked the final live image. No remaining correctness,
+  integration, regression, or unrelated-change findings. Published fingerprint
+  `7c1bd0d4ee51dc75`.

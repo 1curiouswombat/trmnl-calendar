@@ -12,9 +12,11 @@ from PIL import Image, ImageDraw
 
 from trmnl_weekly_calendar.energy_data import AveragePowerPoint, mock_energy_dashboard
 from trmnl_weekly_calendar.energy_render import (
+    axis_tick_label,
     DISPLAY_DAYS,
     FONTS,
     GRID_SUBTITLE,
+    GRID_TOTALS_KEY,
     H,
     PANEL_COUNT,
     W,
@@ -22,6 +24,7 @@ from trmnl_weekly_calendar.energy_render import (
     panel_header_layout,
     panel_kwh,
     panel_plot_box,
+    panel_spines,
     panel_totals_text,
     panel_y_max,
     plot_point,
@@ -29,6 +32,7 @@ from trmnl_weekly_calendar.energy_render import (
     render_energy_image,
     stable_plot_series,
     write_energy_output,
+    y_tick_values,
 )
 
 
@@ -71,7 +75,7 @@ class EnergyRenderTests(unittest.TestCase):
             sorted((item.label.casefold(), item.key) for item in tied),
         )
 
-    def test_small_multiples_are_despined_without_legend_or_grid_guides(self) -> None:
+    def test_small_multiples_have_detached_spines_without_grid_guides(self) -> None:
         image = render_energy_image(self.data)
 
         self.assertEqual(image.crop((1410, 103, 1780, 140)).getextrema(), (255, 255))
@@ -86,8 +90,12 @@ class EnergyRenderTests(unittest.TestCase):
             self.assertTrue(all(image.getpixel(corner) == 255 for corner in corners))
 
         px0, py0, px1, py1 = panel_plot_box(panel_box(0))
-        self.assertEqual(image.getpixel((px0, py0 + 8)), 105)
-        self.assertEqual(image.getpixel(((px0 + px1) // 2, py1)), 105)
+        left_spine, bottom_spine = panel_spines((px0, py0, px1, py1))
+        self.assertEqual(image.getpixel((left_spine[0], py0 + 8)), 105)
+        self.assertEqual(image.getpixel(((px0 + px1) // 2, bottom_spine[1])), 105)
+        self.assertNotEqual((left_spine[0], left_spine[3]), (bottom_spine[0], bottom_spine[1]))
+        self.assertLess(left_spine[0], bottom_spine[0])
+        self.assertLess(left_spine[3], bottom_spine[1])
         for hour in (6, 12, 18, 24):
             x = round(px0 + hour / 24 * (px1 - px0))
             self.assertEqual(image.getpixel((x, py0 + 8)), 255)
@@ -98,8 +106,9 @@ class EnergyRenderTests(unittest.TestCase):
     def test_grid_distinguishes_plot_power_from_daily_energy_totals(self) -> None:
         self.assertEqual(
             GRID_SUBTITLE,
-            "15-MIN AVERAGE POWER • kW • DAILY VALUES: TODAY / YESTERDAY kWh",
+            "15-MIN AVERAGE POWER • kW",
         )
+        self.assertEqual(GRID_TOTALS_KEY, "PANEL TOTALS: TODAY / YESTERDAY • kWh")
         self.assertEqual(panel_kwh(12.345), "12.3")
         self.assertEqual(panel_kwh(0.456), "0.46")
 
@@ -139,6 +148,16 @@ class EnergyRenderTests(unittest.TestCase):
         )
         self.assertNotEqual(panel_y_max(series[0]), panel_y_max(low_use))
         self.assertLess(panel_y_max(low_use), 1)
+
+    def test_y_axis_uses_five_evenly_spaced_ticks(self) -> None:
+        self.assertEqual(
+            (0.0, 0.05, 0.1, 0.15, 0.2),
+            tuple(round(value, 10) for value in y_tick_values(0.2)),
+        )
+        self.assertEqual(
+            ("0", "0.0025", "0.005", "0.0075", "0.01"),
+            tuple(axis_tick_label(value, 0.01) for value in y_tick_values(0.01)),
+        )
 
     def test_power_line_segments_split_at_missing_bucket(self) -> None:
         start = datetime(2026, 8, 7, tzinfo=timezone.utc)
