@@ -20,6 +20,8 @@ from PIL import Image
 from trmnl_weekly_calendar.calendar_data import load_events, load_month_events
 from trmnl_weekly_calendar.energy_data import load_energy_dashboard
 from trmnl_weekly_calendar.energy_render import render_energy_image
+from trmnl_weekly_calendar.birds_data import load_snapshot, select_page
+from trmnl_weekly_calendar.birds_render import render_bird_image
 from trmnl_weekly_calendar.month_render import MONTH_WEEK_ROWS, render_month_image
 from trmnl_weekly_calendar.png_encode import encode_png_grayscale_4bit
 from trmnl_weekly_calendar.render import OUT, configured_now, days_for_week, render_image, start_of_week
@@ -215,12 +217,41 @@ def render_energy(generated_at: datetime, force: bool = False) -> tuple[Image.Im
     return render_energy_image(data), data.source
 
 
+def birds_snapshot_path() -> Path | None:
+    configured = os.environ.get("TRMNL_BIRDS_SNAPSHOT", "").strip()
+    if configured:
+        candidate = Path(configured)
+        return candidate if candidate.exists() else None
+    return None
+
+
+def render_birds(generated_at: datetime, force: bool = False) -> tuple[Image.Image, str]:
+    # The snapshot file is the page's data source; the page date is
+    # the server's configured date, never a second clock read here.
+    # `force` is accepted for the shared CalendarPlugin signature
+    # and intentionally ignored: re-reading the same snapshot file
+    # cannot change the selection, so there is nothing to force.
+    snapshot_path = birds_snapshot_path()
+    if snapshot_path is None:
+        raise FileNotFoundError("TRMNL_BIRDS_SNAPSHOT is not set to an existing file")
+    snapshot = load_snapshot(snapshot_path)
+    page = select_page(snapshot, generated_at.date())
+    return render_bird_image(page), str(snapshot_path)
+
+
 def plugin_specs() -> dict[str, CalendarPlugin]:
-    return {
+    plugins = {
         "weekly": CalendarPlugin("weekly", "weekly-calendar", render_weekly),
         "month": CalendarPlugin("month", "month-calendar", render_month),
         "energy": CalendarPlugin("energy", "energy-dashboard", render_energy),
     }
+    # Birds is opt-in: it must never break the other plugins when no
+    # snapshot is configured, and it must never render a stale sample
+    # as if it were live data.  Set TRMNL_BIRDS_SNAPSHOT to a dated
+    # snapshot file to enable it.
+    if birds_snapshot_path() is not None:
+        plugins["birds"] = CalendarPlugin("birds", "birds-report", render_birds)
+    return plugins
 
 
 def make_handler(caches: dict[str, CalendarCache]):
@@ -330,7 +361,7 @@ def resolve_route(path: str) -> Route | None:
         return Route("image", "weekly", path)
 
     parts = [part for part in path.split("/") if part]
-    if len(parts) != 2 or parts[0] not in {"weekly", "month", "energy"}:
+    if len(parts) != 2 or parts[0] not in {"weekly", "month", "energy", "birds"}:
         return None
 
     plugin_name, leaf = parts
@@ -425,6 +456,8 @@ def main() -> None:
     print(f"Weekly Redirect JSON: http://{host}:{port}/weekly/trmnl.json")
     print(f"Month Redirect JSON:  http://{host}:{port}/month/trmnl.json")
     print(f"Energy Redirect JSON: http://{host}:{port}/energy/trmnl.json")
+    if "birds" in plugins:
+        print(f"Birds Redirect JSON:  http://{host}:{port}/birds/trmnl.json")
     print(f"Legacy weekly JSON:   http://{host}:{port}/trmnl.json")
     server.serve_forever()
 
