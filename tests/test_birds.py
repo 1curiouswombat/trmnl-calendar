@@ -72,3 +72,54 @@ def test_birds_routes_resolve(monkeypatch, tmp_path):
 def test_birds_plugin_is_opt_in(monkeypatch):
     monkeypatch.delenv("TRMNL_BIRDS_SNAPSHOT", raising=False)
     assert "birds" not in server.plugin_specs()
+
+
+def test_disabled_bird_routes_return_404():
+    from http.client import HTTPConnection
+    from threading import Thread
+
+    http_server = server.ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler({}))
+    thread = Thread(target=http_server.serve_forever, daemon=True)
+    thread.start()
+    connection = HTTPConnection("127.0.0.1", http_server.server_port, timeout=2)
+    try:
+        for path in ("/birds/trmnl.json", "/birds/image.png"):
+            connection.request("GET", path)
+            response = connection.getresponse()
+            response.read()
+            assert response.status == 404
+        connection.request("GET", "/healthz")
+        response = connection.getresponse()
+        assert response.status == 200
+        response.read()
+    finally:
+        connection.close()
+        http_server.shutdown()
+        thread.join()
+        http_server.server_close()
+
+
+def test_invalid_snapshot_does_not_block_startup_and_recovers(monkeypatch, tmp_path):
+    from PIL import Image
+
+    snapshot = tmp_path / "birds.json"
+    snapshot.write_text("{invalid", encoding="utf-8")
+    monkeypatch.setenv("TRMNL_BIRDS_SNAPSHOT", str(snapshot))
+    monkeypatch.setattr(server, "render_bird_image", lambda page: Image.new("L", (1, 1)))
+    plugin = server.plugin_specs()["birds"]
+    cache = server.CalendarCache(plugin, 900, cache_dir=tmp_path / "cache")
+    server.initialize_caches({"birds": cache})
+    assert cache._rendered is None
+
+    snapshot.write_text(SAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+    assert cache.get().body.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_required_plugin_initial_failure_still_raises():
+    import pytest
+    from unittest.mock import Mock
+
+    cache = Mock()
+    cache.ensure_initial.side_effect = ValueError("failed")
+    with pytest.raises(ValueError, match="failed"):
+        server.initialize_caches({"weekly": cache})

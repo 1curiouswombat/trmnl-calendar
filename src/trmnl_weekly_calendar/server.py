@@ -274,7 +274,7 @@ def make_handler(caches: dict[str, CalendarCache]):
                     return
 
                 route = resolve_route(path)
-                if route is None:
+                if route is None or route.plugin_name not in caches:
                     self.send_error(HTTPStatus.NOT_FOUND)
                     return
 
@@ -439,6 +439,16 @@ def start_prewarm_loop(caches: dict[str, CalendarCache], refresh_seconds: int) -
     return thread
 
 
+def initialize_caches(caches: dict[str, CalendarCache]) -> None:
+    for name, cache in caches.items():
+        try:
+            cache.ensure_initial()
+        except Exception:
+            if name != "birds":
+                raise
+            LOGGER.exception("Initial render failed for optional birds plugin")
+
+
 def main() -> None:
     configure_logging()
     host = os.environ.get("TRMNL_HOST", "0.0.0.0")
@@ -446,8 +456,7 @@ def main() -> None:
     refresh_seconds = int(os.environ.get("TRMNL_REFRESH_SECONDS", str(DEFAULT_REFRESH_SECONDS)))
     plugins = plugin_specs()
     caches = {name: CalendarCache(plugin, refresh_seconds) for name, plugin in plugins.items()}
-    for cache in caches.values():
-        cache.ensure_initial()
+    initialize_caches(caches)
     server = ThreadingHTTPServer((host, port), make_handler(caches))
     for cache in caches.values():
         cache.prewarm()
